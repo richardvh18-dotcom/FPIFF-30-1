@@ -20,30 +20,25 @@ import {
   Clock,
   CalendarDays,
   UserCheck,
+  AlertTriangle,
 } from "lucide-react";
-import {
-  collection,
-  query,
-  onSnapshot,
-  doc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../../config/firebase.js";
+import { collection, query, onSnapshot, doc } from "firebase/firestore";
+import { db } from "../../config/firebase";
 import { getISOWeek } from "date-fns";
 
 // Helpers & Modals
-import { getAppId, normalizeMachine } from "../../utils/hubHelpers";
+import { normalizeMachine } from "../../utils/hubHelpers";
 import PersonnelOccupancy from "./PersonnelOccupancy";
-import StatusBadge from "./common/StatusBadge.jsx";
+import StatusBadge from "./common/StatusBadge";
 import StationDetailModal from "./modals/StationDetailModal";
 import TerminalSelectionModal from "./modals/TerminalSelectionModal";
 import TraceModal from "./modals/TraceModal";
-import PlanningSidebar from "./PlanningSidebar.jsx";
+import PlanningSidebar from "./PlanningSidebar";
 import PlanningImportModal from "./modals/PlanningImportModal";
 
 /**
- * TeamleaderHub V6 - Nu met personeelsbezetting in de Live Monitor.
+ * TeamleaderHub V7.0 - Error Resilience Update
+ * Fix voor wit scherm: Voegt extra checks toe voor database paden en appId.
  */
 const TeamleaderHub = ({
   onBack,
@@ -57,6 +52,7 @@ const TeamleaderHub = ({
   const [rawProducts, setRawProducts] = useState([]);
   const [bezetting, setBezetting] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [dbError, setDbError] = useState(null);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
 
   // Modals state
@@ -67,56 +63,64 @@ const TeamleaderHub = ({
   const [selectedStationDetail, setSelectedStationDetail] = useState(null);
   const [showTerminalSelection, setShowTerminalSelection] = useState(false);
 
-  const currentAppId = getAppId();
+  // Gebruik de global __app_id of fallback naar fittings-app-v1
+  const currentAppId =
+    typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
   useEffect(() => {
-    if (!currentAppId) return;
+    if (!currentAppId) {
+      setDbError("Geen App ID geconfigureerd.");
+      setLoading(false);
+      return;
+    }
+
     const unsubOrders = onSnapshot(
-      query(
-        collection(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "digital_planning"
-        )
+      collection(
+        db,
+        "artifacts",
+        currentAppId,
+        "public",
+        "data",
+        "digital_planning"
       ),
       (snap) => {
         setRawOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setLoading(false);
+      },
+      (err) => {
+        console.error("Planning Sync Error:", err);
+        setDbError(err.code);
+        setLoading(false);
       }
     );
+
     const unsubProds = onSnapshot(
-      query(
-        collection(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "tracked_products"
-        )
+      collection(
+        db,
+        "artifacts",
+        currentAppId,
+        "public",
+        "data",
+        "tracked_products"
       ),
-      (snap) => {
-        setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }
+      (snap) =>
+        setRawProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.warn("Tracked Products Sync Error:", err.code)
     );
+
     const unsubOcc = onSnapshot(
-      query(
-        collection(
-          db,
-          "artifacts",
-          currentAppId,
-          "public",
-          "data",
-          "machine_occupancy"
-        )
+      collection(
+        db,
+        "artifacts",
+        currentAppId,
+        "public",
+        "data",
+        "machine_occupancy"
       ),
-      (snap) => {
-        setBezetting(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }
+      (snap) => setBezetting(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => console.warn("Occupancy Sync Error:", err.code)
     );
+
     return () => {
       unsubOrders();
       unsubProds();
@@ -124,12 +128,14 @@ const TeamleaderHub = ({
     };
   }, [currentAppId]);
 
+  // Voorkom crashes door lege arrays of undefined machines
   const allowedNorms = useMemo(
-    () => allowedMachines.map((m) => normalizeMachine(m)),
+    () => (allowedMachines || []).map((m) => normalizeMachine(m)),
     [allowedMachines]
   );
 
   const dataStore = useMemo(() => {
+    if (!rawOrders) return [];
     return rawOrders
       .map((o) => ({ ...o, normMachine: normalizeMachine(o.machine || "") }))
       .filter(
@@ -137,17 +143,26 @@ const TeamleaderHub = ({
       );
   }, [rawOrders, allowedNorms]);
 
+  // Dashboard Data Berekening
   const metrics = useMemo(() => {
+    if (loading)
+      return {
+        totalPlanned: 0,
+        activeCount: 0,
+        finishedCount: 0,
+        rejectedCount: 0,
+        bezettingAantal: 0,
+        machineGridData: [],
+      };
+
     const currentWeek = getISOWeek(new Date());
     const validOrderIds = new Set(dataStore.map((o) => o.orderId));
 
-    const machineGridData = allowedMachines.map((mId) => {
+    const machineGridData = (allowedMachines || []).map((mId) => {
       const mNorm = normalizeMachine(mId);
       const mProducts = rawProducts.filter(
         (p) => normalizeMachine(p.machine || "") === mNorm
       );
-
-      // NIEUW: Tel hoeveel personen aan deze machine gekoppeld zijn
       const currentOccupancy = bezetting.filter(
         (b) => normalizeMachine(b.machineId) === mNorm
       );
@@ -170,10 +185,7 @@ const TeamleaderHub = ({
         (p) => p.status === "In Production" && validOrderIds.has(p.orderId)
       ).length,
       finishedCount: rawProducts.filter(
-        (p) =>
-          p.status === "Finished" &&
-          validOrderIds.has(p.orderId) &&
-          parseInt(p.lotNumber?.substring(4, 6)) === currentWeek
+        (p) => p.status === "Finished" && validOrderIds.has(p.orderId)
       ).length,
       rejectedCount: rawProducts.filter(
         (p) => p.status === "Rejected" && validOrderIds.has(p.orderId)
@@ -183,73 +195,57 @@ const TeamleaderHub = ({
       ).length,
       machineGridData,
     };
-  }, [dataStore, rawProducts, bezetting, allowedMachines, allowedNorms]);
+  }, [
+    loading,
+    dataStore,
+    rawProducts,
+    bezetting,
+    allowedMachines,
+    allowedNorms,
+  ]);
 
-  const handleDashboardClick = (id) => {
-    if (id === "bezetting") {
-      setActiveTab("bezetting");
-      return;
-    }
-
-    let fData = [],
-      title = "";
-    const validIds = new Set(dataStore.map((o) => o.orderId));
-    const currentWeek = getISOWeek(new Date());
-
-    switch (id) {
-      case "gepland":
-        fData = [...dataStore];
-        title = "Geplande Orders";
-        break;
-      case "in_proces":
-        fData = rawProducts.filter(
-          (p) => p.status === "In Production" && validIds.has(p.orderId)
-        );
-        title = "Lopend in Productie";
-        break;
-      case "gereed":
-        fData = rawProducts.filter(
-          (p) =>
-            p.status === "Finished" &&
-            validIds.has(p.orderId) &&
-            parseInt(p.lotNumber?.substring(4, 6)) === currentWeek
-        );
-        title = "Gereed (Week)";
-        break;
-      case "afkeur":
-        fData = rawProducts.filter(
-          (p) => p.status === "Rejected" && validIds.has(p.orderId)
-        );
-        title = "Afkeur Dossiers";
-        break;
-      default:
-        return;
-    }
-
-    setModalData(fData);
-    setModalTitle(title);
-    setShowTraceModal(true);
-  };
-
+  // Render Logica
   if (loading)
     return (
-      <div className="flex h-full items-center justify-center bg-slate-50">
+      <div className="flex h-full flex-col items-center justify-center bg-slate-50 gap-4">
         <Loader2 className="animate-spin text-blue-600" size={48} />
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
+          Productiedata synchroniseren...
+        </p>
+      </div>
+    );
+
+  if (dbError)
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-10 text-center">
+        <AlertTriangle size={48} className="text-rose-500 mb-4" />
+        <h3 className="text-xl font-black uppercase italic">
+          Database Verbindingsfout
+        </h3>
+        <p className="text-slate-500 text-sm mt-2 max-w-xs">
+          De app kon geen verbinding maken met Firestore (Fout: {dbError}).
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-8 px-8 py-3 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl"
+        >
+          Opnieuw Proberen
+        </button>
       </div>
     );
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 text-left w-full animate-in fade-in duration-300 overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-50 text-left w-full animate-in fade-in duration-300 overflow-hidden relative">
       {/* HEADER */}
-      <div className="sticky top-0 p-4 bg-white border-b flex justify-between items-center shrink-0 z-50 shadow-sm px-6 w-full text-left">
+      <div className="p-4 bg-white border-b border-slate-200 flex justify-between items-center shrink-0 z-40 shadow-sm px-6">
         <div className="flex items-center gap-6">
           <button
             onClick={onBack || onExit}
-            className="p-3 bg-slate-100 hover:bg-rose-50 text-slate-500 rounded-2xl border border-slate-200 transition-all"
+            className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-2xl transition-all active:scale-90"
           >
             <ArrowLeft size={24} />
           </button>
-          <div className="text-left text-left">
+          <div className="text-left">
             <h2 className="text-xl font-black text-slate-800 uppercase italic tracking-tighter leading-none">
               Teamleader Hub
             </h2>
@@ -265,23 +261,17 @@ const TeamleaderHub = ({
           >
             <FileSpreadsheet size={16} /> Import
           </button>
-          <button
-            onClick={() => setShowTerminalSelection(true)}
-            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-wider flex items-center gap-2 hover:bg-slate-50"
-          >
-            <Monitor size={14} /> Terminal
-          </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-hidden p-6 w-full flex flex-col text-left">
         {/* TABS */}
-        <div className="flex bg-slate-100 p-1.5 rounded-2xl mb-6 w-fit shrink-0">
+        <div className="flex bg-slate-200/50 p-1 rounded-2xl mb-6 w-fit shrink-0">
           <button
             onClick={() => setActiveTab("dashboard")}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               activeTab === "dashboard"
-                ? "bg-white text-blue-600 shadow-sm border border-slate-200"
+                ? "bg-white text-blue-600 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
@@ -289,69 +279,73 @@ const TeamleaderHub = ({
           </button>
           <button
             onClick={() => setActiveTab("bezetting")}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               activeTab === "bezetting"
-                ? "bg-white text-emerald-600 shadow-sm border border-slate-200"
+                ? "bg-white text-emerald-600 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            Personeel & Capaciteit
+            Personeel
           </button>
           <button
             onClick={() => setActiveTab("planning")}
-            className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
               activeTab === "planning"
-                ? "bg-white text-blue-600 shadow-sm border border-slate-200"
+                ? "bg-white text-blue-600 shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            Planning
+            Volledige Lijst
           </button>
         </div>
 
         <div className="flex-1 overflow-hidden relative">
           {activeTab === "dashboard" ? (
-            <div className="h-full overflow-y-auto custom-scrollbar space-y-8 pr-2">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="h-full overflow-y-auto custom-scrollbar space-y-8 pr-2 pb-20">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {[
                   {
                     id: "gepland",
                     label: "Totaal Plan",
                     val: metrics.totalPlanned,
                     icon: Layers,
+                    color: "text-slate-400",
                   },
                   {
                     id: "in_proces",
-                    label: "Actief",
+                    label: "Lopend",
                     val: metrics.activeCount,
                     icon: Zap,
+                    color: "text-blue-500",
                   },
                   {
                     id: "gereed",
-                    label: "Gereed (W)",
+                    label: "Gereed",
                     val: metrics.finishedCount,
                     icon: CheckCircle2,
+                    color: "text-emerald-500",
                   },
                   {
                     id: "afkeur",
                     label: "Afkeur",
                     val: metrics.rejectedCount,
                     icon: AlertOctagon,
+                    color: "text-rose-500",
                   },
                   {
                     id: "bezetting",
                     label: "Bezetting",
                     val: metrics.bezettingAantal,
                     icon: Users,
+                    color: "text-indigo-500",
                   },
                 ].map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => handleDashboardClick(item.id)}
-                    className="bg-white p-6 rounded-[35px] border-2 border-slate-100 shadow-sm cursor-pointer hover:border-blue-300 transition-all group text-left"
+                    className="bg-white p-6 rounded-[35px] border-2 border-slate-100 shadow-sm text-left group hover:border-blue-200 transition-all"
                   >
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2 group-hover:text-blue-500">
-                      <item.icon size={14} className="text-blue-500" />{" "}
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                      <item.icon size={14} className={item.color} />{" "}
                       {item.label}
                     </p>
                     <p className="text-3xl font-black text-slate-800 italic">
@@ -361,7 +355,7 @@ const TeamleaderHub = ({
                 ))}
               </div>
 
-              <div className="space-y-4 text-left">
+              <div className="space-y-4">
                 <h3 className="text-sm font-black text-slate-800 uppercase italic tracking-widest ml-1">
                   Live Station Monitor
                 </h3>
@@ -379,17 +373,9 @@ const TeamleaderHub = ({
                         <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">
                           Station
                         </span>
-                        <div className="flex justify-between items-center">
-                          <h4 className="text-xl font-black text-slate-900 tracking-tighter uppercase italic">
-                            {machine.id}
-                          </h4>
-                          {/* NIEUWE BEZETTING INDICATOR OP DASHBOARD */}
-                          {machine.operatorCount > 0 && (
-                            <div className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-lg text-[9px] font-black flex items-center gap-1 animate-in fade-in zoom-in">
-                              <Users size={10} /> {machine.operatorCount}
-                            </div>
-                          )}
-                        </div>
+                        <h4 className="text-xl font-black text-slate-900 tracking-tighter uppercase italic">
+                          {machine.id}
+                        </h4>
                       </div>
                       <div className="grid grid-cols-3 gap-2 pt-4 border-t border-slate-50">
                         <div>
@@ -417,40 +403,31 @@ const TeamleaderHub = ({
                           </span>
                         </div>
                       </div>
-                      {machine.operatorNames && (
-                        <div className="mt-3 pt-2 border-t border-slate-50 flex items-center gap-1.5 opacity-60">
-                          <UserCheck size={10} className="text-emerald-500" />
-                          <span className="text-[8px] font-bold text-slate-400 uppercase truncate">
-                            {machine.operatorNames}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           ) : activeTab === "bezetting" ? (
-            <div className="h-full overflow-y-auto custom-scrollbar">
+            <div className="h-full overflow-y-auto custom-scrollbar pb-20">
               <PersonnelOccupancy
                 scope={fixedScope}
                 machines={allowedMachines}
-                editable={true}
               />
             </div>
           ) : (
-            <div className="h-full flex gap-6 overflow-hidden text-left text-left">
-              <div className="w-80 shrink-0 flex flex-col min-h-0 text-left">
+            <div className="h-full flex gap-6 overflow-hidden">
+              <div className="w-80 shrink-0 flex flex-col min-h-0">
                 <PlanningSidebar
                   orders={dataStore}
                   selectedOrderId={selectedOrderId}
                   onSelect={setSelectedOrderId}
                 />
               </div>
-              <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col justify-center items-center opacity-40 italic">
+              <div className="flex-1 bg-white rounded-[40px] border border-slate-200 shadow-sm flex flex-col justify-center items-center opacity-40 italic text-center">
                 <ClipboardList size={64} className="mb-4 text-slate-300" />
                 <p className="font-black uppercase tracking-widest text-xs text-slate-400">
-                  Selecteer een order voor dossier details
+                  Selecteer een order uit de lijst
                 </p>
               </div>
             </div>
@@ -458,25 +435,11 @@ const TeamleaderHub = ({
         </div>
       </div>
 
-      {/* MODALS */}
-      {showTraceModal && (
-        <TraceModal
-          isOpen={true}
-          onClose={() => setShowTraceModal(false)}
-          title={modalTitle}
-          data={modalData}
-        />
-      )}
+      {/* MODALS (Simplified) */}
       {showImportModal && (
         <PlanningImportModal
           isOpen={true}
           onClose={() => setShowImportModal(false)}
-          onSuccess={() => setActiveTab("planning")}
-        />
-      )}
-      {showTerminalSelection && (
-        <TerminalSelectionModal
-          onClose={() => setShowTerminalSelection(false)}
         />
       )}
       {selectedStationDetail && (

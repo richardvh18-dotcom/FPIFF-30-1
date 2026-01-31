@@ -1,5 +1,15 @@
 import React, { useState } from "react";
-import { Plus, ArrowLeft } from "lucide-react";
+import {
+  Plus,
+  ArrowLeft,
+  Package,
+  Loader2,
+  ShieldCheck,
+  Database,
+  Search,
+  LayoutDashboard,
+  Zap,
+} from "lucide-react";
 import AdminProductListView from "./AdminProductListView";
 import ProductForm from "./ProductForm";
 import {
@@ -9,57 +19,55 @@ import {
 } from "../../utils/productHelpers";
 import { useProductsData } from "../../hooks/useProductsData";
 
+/**
+ * AdminProductManager V6.2 - Core Catalog Controller
+ * Beheert de orchestratie tussen de productlijst en het bewerkingsformulier.
+ * Maakt gebruik van de nieuwe root-architectuur voor data-consistentie.
+ */
 const AdminProductManager = ({ user }) => {
   const [view, setView] = useState("list"); // 'list' of 'form'
   const [selectedProduct, setSelectedProduct] = useState(null);
-
-  // Haal data op voor de lijst
-  const { products, loading, refresh } = useProductsData();
-
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Start met het aanmaken van een nieuw product (Opent Modal)
+  // Haal live data op uit de root via de custom hook
+  const { products, loading, refresh } = useProductsData();
+
   const handleCreateNew = () => {
-    console.log("ACTIE: Nieuw product knop ingedrukt - Open Modal");
-    setSelectedProduct(null); // Null = Nieuw formulier
-    setView("form"); // Zet status op 'form' om de modal te tonen
+    setSelectedProduct(null);
+    setView("form");
   };
 
-  // Start met het bewerken van een bestaand product (Opent Modal)
   const handleEdit = (product) => {
-    console.log("ACTIE: Bewerken product - Open Modal", product.id);
     setSelectedProduct(product);
     setView("form");
   };
 
-  // Sluit de modal en reset selectie
   const handleCancel = () => {
-    console.log("ACTIE: Modal sluiten");
     setSelectedProduct(null);
     setView("list");
   };
 
   const handleDelete = async (id) => {
     if (
-      window.confirm(
-        "Weet je zeker dat je dit product wilt verwijderen? Dit kan niet ongedaan worden gemaakt."
+      !window.confirm(
+        "Weet je zeker dat je dit product wilt verwijderen uit de root database?"
       )
-    ) {
-      try {
-        setActionLoading(true);
-        await deleteProduct(id);
-        if (refresh) refresh();
-      } catch (error) {
-        console.error("Fout bij verwijderen:", error);
-        alert("Kon product niet verwijderen: " + error.message);
-      } finally {
-        setActionLoading(false);
-      }
+    )
+      return;
+
+    setActionLoading(true);
+    try {
+      await deleteProduct(id);
+      if (refresh) await refresh();
+    } catch (error) {
+      console.error("Delete Error:", error);
+      alert("Verwijderen mislukt: " + error.message);
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleSave = async (productData) => {
-    console.log("ACTIE: Opslaan gestart...", productData);
     setActionLoading(true);
     try {
       if (selectedProduct && selectedProduct.id) {
@@ -68,86 +76,162 @@ const AdminProductManager = ({ user }) => {
         await addProduct(productData);
       }
 
-      console.log("Opslaan succesvol, sluit modal");
-      handleCancel(); // Sluit modal na succesvol opslaan
-      if (refresh) refresh();
+      handleCancel();
+      if (refresh) await refresh();
     } catch (error) {
-      console.error("Fout bij opslaan:", error);
-      alert("Er ging iets mis bij het opslaan: " + error.message);
+      console.error("Save Error:", error);
+      alert("Opslaan mislukt: " + error.message);
     } finally {
       setActionLoading(false);
     }
   };
 
   return (
-    <div className="h-full flex flex-col relative">
-      {/* === HEADER (Altijd zichtbaar) === */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Product Beheer</h1>
-          <p className="text-sm text-gray-500">
-            Beheer de catalogus en specificaties
-          </p>
+    <div className="h-full flex flex-col relative bg-slate-50 text-left animate-in fade-in duration-500">
+      {/* === HEADER UNIT === */}
+      <div className="bg-white border-b border-slate-200 p-8 flex flex-col md:flex-row justify-between items-center shrink-0 shadow-sm gap-6 relative z-10">
+        <div className="flex items-center gap-6">
+          <div className="p-4 bg-blue-600 text-white rounded-[20px] shadow-lg shadow-blue-200">
+            <Package size={28} />
+          </div>
+          <div className="text-left">
+            <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
+              Product <span className="text-blue-600">Manager</span>
+            </h1>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 uppercase italic">
+                <ShieldCheck size={10} /> Root Authorized
+              </span>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                Systeem Catalogus v6.4
+              </p>
+            </div>
+          </div>
         </div>
 
         <button
           onClick={handleCreateNew}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center shadow-sm transition-all"
+          className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-blue-600 transition-all active:scale-95 flex items-center gap-3"
         >
-          <Plus size={20} className="mr-2" />
-          Nieuw Product
+          <Plus size={18} strokeWidth={3} /> Nieuw Product Toevoegen
         </button>
       </div>
 
-      {/* === LIJST WEERGAVE (Altijd zichtbaar op de achtergrond) === */}
-      <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative z-0">
-        {/* Laadscherm voor de lijst */}
-        {loading && !products && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        )}
-
-        {/* Laadscherm voor acties (verwijderen) */}
+      {/* === MAIN CONTENT AREA === */}
+      <div className="flex-1 overflow-hidden relative p-8 bg-slate-50/50">
+        {/* Loading Overlay voor Globale Acties */}
         {actionLoading && (
-          <div className="absolute inset-0 bg-white/50 z-50 flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/20 backdrop-blur-[2px] animate-in fade-in">
+            <div className="bg-white p-8 rounded-[30px] shadow-2xl flex flex-col items-center gap-4">
+              <Loader2 className="animate-spin text-blue-600" size={40} />
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
+                Database Bijwerken...
+              </p>
+            </div>
           </div>
         )}
 
-        <AdminProductListView
-          products={products}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          user={user}
-        />
+        {/* De Product Lijst */}
+        <div className="h-full bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden relative">
+          {loading && !products?.length ? (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white gap-4">
+              <Loader2 className="animate-spin text-blue-600" size={48} />
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 italic">
+                Catalogus Laden...
+              </p>
+            </div>
+          ) : (
+            <AdminProductListView
+              products={products}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              user={user}
+            />
+          )}
+        </div>
       </div>
 
-      {/* === MODAL OVERLAY (Alleen zichtbaar als view === 'form') === */}
+      {/* === MODAL OVERLAY: PRODUCT FORM === */}
       {view === "form" && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 md:p-4 lg:p-6">
-          {/* Donkere achtergrond met blur (klikken sluit modal) */}
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 md:p-6 animate-in fade-in duration-300">
+          {/* Backdrop met Blur */}
           <div
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-md transition-opacity"
             onClick={handleCancel}
           ></div>
 
-          {/* Modal Venster - Nu volledig responsive */}
-          {/* Mobiel: w-full h-full (fullscreen), geen rounding */}
-          {/* Desktop (md+): w-[95vw] h-[90vh] (modal look), rounded corners */}
-          <div className="relative w-full h-full md:w-[95vw] md:h-[90vh] lg:max-w-screen-2xl bg-slate-50 md:rounded-[30px] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-slate-200">
-            {/* We renderen het formulier hierin. */}
-            <ProductForm
-              initialData={selectedProduct}
-              onSubmit={handleSave}
-              onCancel={handleCancel}
-              user={user}
-            />
+          {/* Modal Container */}
+          <div className="relative w-full h-full md:w-[96vw] md:h-[92vh] lg:max-w-screen-2xl bg-slate-50 md:rounded-[45px] shadow-[0_40px_100px_rgba(0,0,0,0.4)] overflow-hidden flex flex-col animate-in zoom-in-95 duration-500 border border-white/10">
+            {/* Modal Top Bar */}
+            <div className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                  <Zap size={16} />
+                </div>
+                <h3 className="text-sm font-black uppercase italic text-slate-800 tracking-tight">
+                  {selectedProduct
+                    ? "Product Specificaties Wijzigen"
+                    : "Nieuwe Configuratie Registreren"}
+                </h3>
+              </div>
+              <button
+                onClick={handleCancel}
+                className="p-3 hover:bg-slate-100 rounded-2xl transition-all text-slate-400 hover:text-slate-900"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Formulier Content */}
+            <div className="flex-1 overflow-hidden">
+              <ProductForm
+                initialData={selectedProduct}
+                onSubmit={handleSave}
+                onCancel={handleCancel}
+                user={user}
+              />
+            </div>
+
+            {/* Modal Bottom Guard */}
+            <div className="h-4 bg-blue-600 w-full shrink-0"></div>
           </div>
         </div>
       )}
+
+      {/* FOOTER AUDIT INFO */}
+      <div className="bg-slate-950 p-4 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] px-10 shrink-0 relative z-10">
+        <div className="flex items-center gap-6">
+          <span className="flex items-center gap-2">
+            <Database size={14} className="text-blue-500" /> Storage: Cloud Root
+          </span>
+          <span className="flex items-center gap-2">
+            <Zap size={14} className="text-emerald-500" /> Active Sync: Realtime
+          </span>
+        </div>
+        <span className="opacity-30">Future Factory MES Core v6.11</span>
+      </div>
     </div>
   );
 };
+
+/**
+ * Interne X icon component voor de modal
+ */
+const X = ({ size, className }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="3"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <line x1="18" y1="6" x2="6" y2="18"></line>
+    <line x1="6" y1="6" x2="18" y2="18"></line>
+  </svg>
+);
 
 export default AdminProductManager;

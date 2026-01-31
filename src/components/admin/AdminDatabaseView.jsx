@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Database,
   Search,
@@ -20,8 +20,11 @@ import {
   Terminal,
   Bug,
   SearchIcon,
+  ShieldCheck,
+  ShieldAlert,
+  X,
 } from "lucide-react";
-import { db, auth } from "../../config/firebase";
+import { db } from "../../config/firebase";
 import {
   collection,
   getDocs,
@@ -32,152 +35,161 @@ import {
   getDoc,
   collectionGroup,
 } from "firebase/firestore";
+import { PATHS, isValidPath } from "../../config/dbPaths";
 
 /**
- * AdminDatabaseView V3.3 - Brute Force Crawler Edition
- * Deze versie bevat een 'Crawler' die door de hele database zoekt naar data,
- * ongeacht de mappenstructuur of App ID.
+ * AdminDatabaseView V4.0 - Root-Ready Forensic Edition
+ * Gebruikt PATHS uit dbPaths.js om data te valideren in de /future-factory/ root.
+ * Bevat een 'Crawl' functie om door legacy collecties te zoeken.
  */
 const AdminDatabaseView = () => {
-  const [selectedCollection, setSelectedCollection] = useState("products");
+  const [selectedKey, setSelectedKey] = useState("PRODUCTS");
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Debug & Discovery state
+  // Metadata & Recovery
   const [discoveryLog, setDiscoveryLog] = useState([]);
-  const [foundAppIds, setFoundAppIds] = useState([]);
   const [activePath, setActivePath] = useState("");
   const [isCrawling, setIsCrawling] = useState(false);
 
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-
-  const COLLECTIONS = [
-    { id: "products", label: "Producten", color: "text-blue-400" },
-    { id: "digital_planning", label: "Planning", color: "text-emerald-400" },
-    { id: "user_roles", label: "Gebruikers", color: "text-indigo-400" },
-    { id: "tracked_products", label: "Tracking", color: "text-orange-400" },
-    { id: "settings", label: "Instellingen", color: "text-amber-400" },
+  // Lijst van modules gebaseerd op dbPaths.js
+  const MODULES = [
+    { key: "PRODUCTS", label: "Product Catalogus", icon: <Layers size={18} /> },
+    {
+      key: "PLANNING",
+      label: "Digitale Planning",
+      icon: <Activity size={18} />,
+    },
+    { key: "TRACKING", label: "Live Tracking", icon: <SearchCode size={18} /> },
+    {
+      key: "USERS",
+      label: "Gebruikers Accounts",
+      icon: <Fingerprint size={18} />,
+    },
+    {
+      key: "GENERAL_SETTINGS",
+      label: "Systeem Config",
+      icon: <Terminal size={18} />,
+    },
+    {
+      key: "BORE_DIMENSIONS",
+      label: "Boring Specs",
+      icon: <Table size={18} />,
+    },
+    {
+      key: "CB_DIMENSIONS",
+      label: "CB Mof Maten",
+      icon: <Database size={18} />,
+    },
+    {
+      key: "TB_DIMENSIONS",
+      label: "TB Mof Maten",
+      icon: <Database size={18} />,
+    },
   ];
 
   const addLog = (msg) =>
     setDiscoveryLog((prev) =>
-      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 15)
+      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 10)
     );
 
-  // 1. CRAWLER: Zoekt overal naar de collectienaam (negeert paden)
+  // 1. FORENSIC CRAWLER: Zoekt op collectienaam (collectionGroup)
   const runDeepCrawl = async () => {
     setIsCrawling(true);
     setDocuments([]);
-    addLog(`Deep Crawl gestart voor: ${selectedCollection}...`);
+    const colName = PATHS[selectedKey][PATHS[selectedKey].length - 1];
+    addLog(`Deep Crawl gestart voor collectie: ${colName}...`);
 
     try {
-      // Gebruik collectionGroup om overal in de DB te zoeken
-      const groupRef = collectionGroup(db, selectedCollection);
-      const q = query(groupRef, limit(20));
+      const groupRef = collectionGroup(db, colName);
+      const q = query(groupRef, limit(25));
       const snapshot = await getDocs(q);
 
       if (!snapshot.empty) {
         const foundPath = snapshot.docs[0].ref.path.split(
           "/" + snapshot.docs[0].id
         )[0];
-        addLog(`🔥 DATA GEVONDEN via Crawler!`);
-        addLog(`📍 Locatie: /${foundPath}`);
+        addLog(`🔥 DATA GEVONDEN! PUNT: /${foundPath}`);
         setActivePath(foundPath);
-
-        const docsList = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setDocuments(docsList);
+        setDocuments(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
       } else {
-        addLog(
-          `❌ Crawler kon niets vinden voor '${selectedCollection}' in de gehele database.`
-        );
+        addLog(`❌ Geen data gevonden voor '${colName}' in de gehele DB.`);
       }
     } catch (err) {
-      addLog(`FOUT tijdens crawl: ${err.code}`);
-      if (err.code === "failed-precondition") {
-        addLog("Advies: Maak een index aan in Firebase Console (zie log).");
-      }
+      addLog(`FOUT: ${err.code}`);
     } finally {
       setIsCrawling(false);
     }
   };
 
-  // 2. STANDAARD FETCH (Met pad-switch)
-  const fetchCollectionData = async () => {
+  // 2. PRIMARY FETCH (Gebruikt dbPaths.js)
+  const fetchPathData = async () => {
+    if (!isValidPath(selectedKey)) return;
+
     setLoading(true);
     setDocuments([]);
+    const pathArray = PATHS[selectedKey];
+    const pathStr = pathArray.join("/");
+    setActivePath(pathStr);
 
-    const pathsToTry = [
-      ["artifacts", appId, "public", "data", selectedCollection],
-      ["artifacts", appId, selectedCollection],
-      [selectedCollection], // Root level fallback
-    ];
+    addLog(`Inspectie pad: /${pathStr}`);
 
-    let found = false;
-
-    for (const pathArray of pathsToTry) {
-      const pathStr = pathArray.join("/");
-      addLog(`Check: /${pathStr}`);
-
-      try {
+    try {
+      // Als pad-lengte even is, is het een document. Als het oneven is, een collectie.
+      if (pathArray.length % 2 !== 0) {
         const colRef = collection(db, ...pathArray);
-        const snapshot = await getDocs(query(colRef, limit(20)));
-
-        if (!snapshot.empty) {
-          addLog(`✅ Succes op pad: /${pathStr}`);
-          setActivePath(pathStr);
-          setDocuments(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-          found = true;
-          break;
+        const snapshot = await getDocs(query(colRef, limit(50)));
+        setDocuments(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        addLog(`✅ ${snapshot.size} items geladen.`);
+      } else {
+        // Het is een document (bijv. settings/main)
+        const docRef = doc(db, ...pathArray);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          setDocuments([{ id: snap.id, ...snap.data(), _isSingleDoc: true }]);
+          addLog(`✅ Document geladen.`);
+        } else {
+          addLog(`ℹ️ Document bestaat niet op dit pad.`);
         }
-      } catch (e) {
-        addLog(`⚠️ Pad /${pathStr} mislukt: ${e.code}`);
       }
+    } catch (e) {
+      addLog(`❌ Fout: ${e.code}`);
+    } finally {
+      setLoading(false);
     }
-
-    if (!found) addLog(`❌ Geen data gevonden via standaard paden.`);
-    setLoading(false);
   };
 
-  // Scan root IDs bij laden
   useEffect(() => {
-    const scanRoot = async () => {
-      try {
-        const snap = await getDocs(collection(db, "artifacts"));
-        setFoundAppIds(snap.docs.map((d) => d.id));
-      } catch (e) {}
-    };
-    scanRoot();
-    fetchCollectionData();
-  }, [selectedCollection, appId]);
+    fetchPathData();
+  }, [selectedKey]);
 
   const handleDeleteDoc = async (docId) => {
-    if (!window.confirm("Document definitief verwijderen?")) return;
+    if (!window.confirm("Document definitief verwijderen uit de root?")) return;
     try {
-      const pathParts = activePath.split("/");
-      const docRef = doc(db, ...pathParts, docId);
+      const docRef = doc(db, ...activePath.split("/"), docId);
       await deleteDoc(docRef);
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
       addLog(`Verwijderd: ${docId}`);
     } catch (error) {
-      alert("Fout: " + error.message);
+      alert("Delete failed: " + error.message);
     }
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden animate-in fade-in text-left">
-      {/* TOPBAR */}
+      {/* HEADER */}
       <div className="p-6 bg-slate-900 border-b border-white/10 flex justify-between items-center shrink-0 z-10 shadow-2xl">
         <div className="flex items-center gap-5">
-          <div className="p-3.5 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-900/40 rotate-2">
+          <div className="p-3.5 bg-blue-600 text-white rounded-2xl shadow-xl rotate-2">
             <Bug size={28} />
           </div>
           <div className="text-left">
             <h2 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
-              Database <span className="text-blue-500">Crawler</span>
+              Root <span className="text-blue-500">Explorer</span>
             </h2>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.4em] mt-2">
-              V3.3 | Forensic Recovery
+              V4.0 | Path Integrity Monitor
             </p>
           </div>
         </div>
@@ -186,136 +198,98 @@ const AdminDatabaseView = () => {
           <button
             onClick={runDeepCrawl}
             disabled={isCrawling}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest flex items-center gap-3 shadow-lg active:scale-95 disabled:opacity-50"
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-black text-[10px] tracking-widest flex items-center gap-3 shadow-lg active:scale-95 disabled:opacity-50"
           >
             {isCrawling ? (
               <Loader2 size={18} className="animate-spin" />
             ) : (
               <SearchIcon size={18} />
             )}
-            Deep Crawl DB
+            Forensic Crawl
           </button>
           <button
-            onClick={fetchCollectionData}
+            onClick={fetchPathData}
             className="p-3.5 bg-white/5 hover:bg-white/10 rounded-2xl transition-all border border-white/10 active:scale-95"
           >
             <RefreshCw
               size={20}
-              className={`${
+              className={
                 loading ? "animate-spin text-blue-400" : "text-slate-400"
-              }`}
+              }
             />
           </button>
         </div>
       </div>
 
       <div className="flex-1 flex overflow-hidden">
-        {/* SIDEBAR (Linker Kolom - w-96) */}
-        <div className="w-96 border-r border-white/10 bg-slate-950 flex flex-col p-6 gap-8 overflow-y-auto custom-scrollbar shadow-2xl z-20">
-          <div className="space-y-3">
+        {/* SIDEBAR */}
+        <div className="w-80 border-r border-white/10 bg-slate-950 flex flex-col p-6 gap-6 overflow-y-auto custom-scrollbar shadow-2xl z-20">
+          <div className="space-y-2">
             <div className="flex items-center gap-2 mb-4 px-2">
-              <Terminal size={14} className="text-blue-500" />
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                Kies Map om te Scannen
+              <Terminal size={12} className="text-blue-500" />
+              <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                Gevalideerde Mappen
               </h3>
             </div>
 
-            {COLLECTIONS.map((col) => (
+            {MODULES.map((mod) => (
               <button
-                key={col.id}
-                onClick={() => setSelectedCollection(col.id)}
-                className={`w-full flex items-center justify-between p-5 rounded-2xl transition-all text-left border-2 group relative overflow-hidden ${
-                  selectedCollection === col.id
-                    ? "bg-blue-600/10 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.15)]"
+                key={mod.key}
+                onClick={() => setSelectedKey(mod.key)}
+                className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all text-left border-2 group ${
+                  selectedKey === mod.key
+                    ? "bg-blue-600/10 border-blue-500 shadow-lg"
                     : "bg-white/5 border-transparent hover:bg-white/10 text-slate-400"
                 }`}
               >
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`p-3 rounded-xl ${
-                      selectedCollection === col.id
-                        ? "bg-blue-500 text-white shadow-lg"
-                        : "bg-slate-900 text-slate-500"
+                <div
+                  className={`p-2 rounded-lg ${
+                    selectedKey === mod.key
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-900 text-slate-600"
+                  }`}
+                >
+                  {mod.icon}
+                </div>
+                <div className="flex flex-col overflow-hidden">
+                  <span
+                    className={`text-xs font-black uppercase italic tracking-tight ${
+                      selectedKey === mod.key ? "text-white" : "text-slate-400"
                     }`}
                   >
-                    <Table size={20} />
-                  </div>
-                  <div className="flex flex-col text-left">
-                    <span
-                      className={`text-base font-black uppercase italic tracking-tight leading-none ${
-                        selectedCollection === col.id
-                          ? "text-white"
-                          : "text-slate-400"
-                      }`}
-                    >
-                      {col.label}
-                    </span>
-                    <span className="text-[9px] font-mono text-slate-600 uppercase tracking-widest mt-1.5">
-                      /{col.id}
-                    </span>
-                  </div>
+                    {mod.label}
+                  </span>
+                  <span className="text-[8px] font-mono text-slate-600 truncate uppercase">
+                    {mod.key}
+                  </span>
                 </div>
               </button>
             ))}
           </div>
 
-          <div className="mt-auto space-y-6">
-            <div className="p-6 bg-black/60 rounded-[35px] border border-white/5 text-left">
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <Globe size={14} className="text-blue-400" /> Geregistreerde
-                Project IDs
-              </p>
-              <div className="flex flex-col gap-2">
-                {foundAppIds.map((id) => (
-                  <div
-                    key={id}
-                    className={`flex items-center justify-between px-4 py-3 rounded-xl text-[11px] font-mono font-bold ${
-                      id === appId
-                        ? "bg-blue-600 text-white shadow-lg"
-                        : "bg-white/5 text-slate-500"
-                    }`}
-                  >
-                    <span>{id}</span>
-                    {id === appId && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></div>
-                    )}
-                  </div>
-                ))}
-              </div>
+          <div className="mt-auto p-6 bg-slate-900 rounded-[30px] border border-white/5 relative overflow-hidden shadow-inner">
+            <div className="absolute top-0 right-0 p-4 opacity-5 rotate-12">
+              <HardDrive size={60} />
             </div>
-
-            <div className="p-6 bg-slate-900 rounded-[35px] border border-white/10 relative overflow-hidden shadow-2xl">
-              <div className="absolute top-0 right-0 p-4 opacity-5 rotate-12">
-                <HardDrive size={70} />
-              </div>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <Activity size={14} className="text-emerald-500" /> Huidig Pad:
-              </p>
-              <code className="text-[11px] font-mono text-blue-400 break-all leading-relaxed block bg-black/40 p-4 rounded-2xl border border-white/5">
-                /{activePath || "Zoeken..."}
-              </code>
-            </div>
+            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 italic">
+              Huidig Root Pad:
+            </p>
+            <code className="text-[10px] font-mono text-emerald-400 break-all leading-relaxed block bg-black/40 p-3 rounded-xl border border-white/5">
+              /{activePath || "Selecteer module..."}
+            </code>
           </div>
         </div>
 
-        {/* MAIN VIEW AREA */}
+        {/* DATA CONTENT */}
         <div className="flex-1 flex flex-col bg-slate-900 relative">
-          {/* DEBUG LOG PANEL */}
-          <div className="p-4 bg-black/40 border-b border-white/5 flex gap-4 overflow-x-auto no-scrollbar shrink-0 shadow-inner">
-            <div className="flex items-center gap-3 px-4 border-r border-white/10 shrink-0">
-              <Terminal size={12} className="text-slate-500" />
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
-                Systeem Logboek
-              </span>
-            </div>
+          {/* LOGS BAR */}
+          <div className="p-3 bg-black/40 border-b border-white/5 flex gap-4 overflow-x-auto no-scrollbar shrink-0 shadow-inner">
             {discoveryLog.map((log, i) => (
               <div
                 key={i}
-                className={`whitespace-nowrap px-4 py-1.5 rounded-xl border text-[10px] font-mono transition-all ${
+                className={`whitespace-nowrap px-4 py-1.5 rounded-lg border text-[9px] font-mono ${
                   log.includes("✅") || log.includes("🔥")
                     ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                    : log.includes("❌") || log.includes("FOUT")
-                    ? "bg-rose-500/10 border-rose-500/30 text-rose-400"
                     : "bg-white/5 border-white/5 text-slate-500"
                 }`}
               >
@@ -324,82 +298,80 @@ const AdminDatabaseView = () => {
             ))}
           </div>
 
-          {/* DOCUMENT LIST */}
-          <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-gradient-to-b from-slate-900 to-slate-950">
+          {/* LIST */}
+          <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
             {loading || isCrawling ? (
               <div className="h-full flex flex-col items-center justify-center opacity-60">
                 <Loader2
                   className="animate-spin text-blue-400 mb-4"
-                  size={48}
+                  size={40}
                 />
-                <p className="text-xs font-black uppercase tracking-[0.4em] text-blue-400 animate-pulse italic">
-                  Onderzoek in uitvoering...
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400 italic animate-pulse">
+                  Synchroniseren...
                 </p>
               </div>
             ) : documents.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center py-20 text-center animate-in zoom-in">
-                <div className="p-12 bg-white/5 rounded-full mb-8 border-2 border-dashed border-white/10 shadow-inner">
-                  <AlertTriangle size={80} className="text-slate-600" />
+              <div className="h-full flex flex-col items-center justify-center py-20 text-center opacity-40">
+                <div className="p-10 bg-white/5 rounded-full mb-6 border-2 border-dashed border-white/10">
+                  <Database size={60} className="text-slate-600" />
                 </div>
-                <h4 className="text-3xl font-black uppercase italic tracking-tighter text-white mb-2">
-                  Geen Documenten
+                <h4 className="text-2xl font-black uppercase italic tracking-tighter text-white mb-2">
+                  Pad is leeg
                 </h4>
-                <p className="text-sm font-medium text-slate-400 max-w-sm mx-auto leading-relaxed">
-                  Geen data gevonden voor{" "}
-                  <span className="text-white">'{selectedCollection}'</span> via
-                  de standaard paden.
-                  <br />
-                  <br />
-                  Gebruik de knop <b>"Deep Crawl DB"</b> rechtsboven om de hele
-                  database te doorzoeken.
+                <p className="text-xs font-medium text-slate-500 max-w-sm mx-auto">
+                  Dit gedeelte van de <b>/future-factory/</b> root bevat nog
+                  geen documenten.
                 </p>
               </div>
             ) : (
-              <div className="max-w-5xl mx-auto grid grid-cols-1 gap-8 pb-40">
-                <div className="flex items-center justify-between px-4 bg-white/5 p-5 rounded-[30px] border border-white/5 mb-2">
-                  <div className="flex items-center gap-4">
-                    <div className="p-2.5 bg-blue-500 text-white rounded-xl shadow-lg">
-                      <Layers size={18} />
-                    </div>
-                    <span className="text-base font-black text-white uppercase italic tracking-tight">
-                      {documents.length} Items gevonden in /{activePath}
+              <div className="max-w-4xl mx-auto space-y-6 pb-40">
+                <div className="flex items-center justify-between px-6 py-4 bg-white/5 rounded-2xl border border-white/10 mb-4">
+                  <div className="flex items-center gap-3">
+                    <ShieldCheck size={16} className="text-emerald-500" />
+                    <span className="text-xs font-black uppercase italic tracking-widest text-slate-300">
+                      Live Root Data: {selectedKey}
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-black/40 px-3 py-1.5 rounded-full border border-white/5">
-                    Raw Data View
+                  <span className="text-[10px] font-mono text-slate-500">
+                    {documents.length} Records
                   </span>
                 </div>
 
-                {documents.map((doc) => (
+                {documents.map((docItem) => (
                   <div
-                    key={doc.id}
-                    className="bg-slate-900 border border-white/10 rounded-[45px] overflow-hidden shadow-2xl hover:border-blue-500/40 transition-all group relative text-left"
+                    key={docItem.id}
+                    className="bg-slate-900 border border-white/10 rounded-[35px] overflow-hidden shadow-xl hover:border-blue-500/30 transition-all group"
                   >
-                    <div className="p-7 bg-white/5 border-b border-white/5 flex justify-between items-center relative z-10">
-                      <div className="flex items-center gap-6">
-                        <div className="p-4 bg-blue-600/20 text-blue-400 rounded-2xl shadow-inner group-hover:bg-blue-600 group-hover:text-white transition-all">
-                          <FileText size={24} />
+                    <div className="p-6 bg-white/5 border-b border-white/5 flex justify-between items-center">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 bg-blue-600/20 text-blue-400 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-all">
+                          <FileText size={20} />
                         </div>
                         <div className="text-left">
-                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1.5">
+                          <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">
                             Document ID
                           </p>
-                          <code className="text-sm font-black text-blue-300 bg-black/40 px-4 py-1.5 rounded-xl border border-white/10">
-                            {doc.id}
+                          <code className="text-xs font-black text-blue-300 uppercase tracking-tight">
+                            {docItem.id}
                           </code>
                         </div>
                       </div>
                       <button
-                        onClick={() => handleDeleteDoc(doc.id)}
-                        className="p-4 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all"
+                        onClick={() => handleDeleteDoc(docItem.id)}
+                        className="p-3 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all"
                       >
-                        <Trash2 size={24} />
+                        <Trash2 size={20} />
                       </button>
                     </div>
 
-                    <div className="p-10">
-                      <pre className="text-[13px] font-mono text-slate-400 leading-loose max-h-96 overflow-y-auto custom-scrollbar text-left bg-black/20 p-8 rounded-[35px] border border-white/5 shadow-inner">
-                        {JSON.stringify(doc, null, 2)}
+                    <div className="p-8">
+                      <pre className="text-xs font-mono text-slate-400 leading-relaxed max-h-96 overflow-y-auto custom-scrollbar text-left bg-black/40 p-6 rounded-[25px] border border-white/5 shadow-inner">
+                        {JSON.stringify(
+                          docItem,
+                          (key, value) =>
+                            key.startsWith("_") ? undefined : value,
+                          2
+                        )}
                       </pre>
                     </div>
                   </div>
@@ -411,13 +383,15 @@ const AdminDatabaseView = () => {
       </div>
 
       <div className="p-4 bg-slate-950 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] px-10 shrink-0">
-        <span>Future Factory DB Crawler v3.3</span>
-        <div className="flex gap-10">
+        <div className="flex items-center gap-4">
           <span className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>{" "}
-            Connected: {appId}
+            <Globe size={12} /> Global Node Active
+          </span>
+          <span className="flex items-center gap-2">
+            <ShieldAlert size={12} /> High-Level Diagnostics
           </span>
         </div>
+        <span className="opacity-50">Future Factory MES Core v6.11</span>
       </div>
     </div>
   );

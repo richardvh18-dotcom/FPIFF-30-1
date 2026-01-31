@@ -6,6 +6,9 @@ import {
   query,
   limit,
   collectionGroup,
+  doc,
+  setDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
@@ -14,37 +17,36 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
-  FolderSearch,
+  SearchCode,
   Zap,
   Globe,
   Terminal,
   ShieldCheck,
-  Fingerprint,
-  MapPin,
-  SearchCode,
-  Scan,
+  TestTube2,
+  DatabaseZap,
+  FolderSearch,
+  ChevronRight,
 } from "lucide-react";
+import { PATHS } from "../../config/dbPaths";
 
 /**
- * UniversalRescueTool V4.0 - Forensic Discovery
- * Deze tool toont exact welk Project ID wordt gebruikt en probeert
- * via 'Collection Groups' data te vinden die diep in mappen verstopt zit.
+ * UniversalRescueTool V6.0 - Advanced Forensic Validator
+ * Deze tool is het ultieme redmiddel om data-integriteit te controleren
+ * en verloren paden te identificeren in zowel /artifacts/ als /future-factory/.
  */
 const UniversalRescueTool = () => {
   const [foundCollections, setFoundCollections] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [authStatus, setAuthStatus] = useState("Controleren...");
 
-  // Forensic Info
   const activeProjectId = db?._databaseId?.projectId || "ONBEKEND";
-  const currentAppId =
-    typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
 
   const addLog = (msg) => {
     setLogs((prev) =>
-      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 25)
+      [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 30)
     );
   };
 
@@ -52,7 +54,7 @@ const UniversalRescueTool = () => {
     const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
         setAuthStatus(`Ingelogd (${user.uid.substring(0, 8)})`);
-        addLog("Sessie geactiveerd.");
+        addLog("Sessie actief en geautoriseerd.");
       } else {
         setAuthStatus("Niet ingelogd...");
         signInAnonymously(auth).catch((err) =>
@@ -63,6 +65,47 @@ const UniversalRescueTool = () => {
     return () => unsub();
   }, []);
 
+  /**
+   * TEST: Schrijf-validatie naar de Root
+   * Controleert of de Security Rules schrijven naar de nieuwe structuur toestaan.
+   */
+  const runWriteTest = async () => {
+    setIsTesting(true);
+    setError(null);
+    addLog("Start integriteits-test voor Root Rules...");
+    try {
+      // We proberen een verborgen test-document in de settings te schrijven
+      const testRef = doc(
+        db,
+        "future-factory",
+        "settings",
+        "connection_test",
+        "ping"
+      );
+      await setDoc(testRef, {
+        timestamp: new Date().toISOString(),
+        status: "Success",
+        projectId: activeProjectId,
+      });
+      addLog("✅ RULES CHECK OK: Je kunt schrijven naar /future-factory/");
+
+      // Direct weer opruimen
+      await deleteDoc(testRef);
+      addLog("Systeem is gereed voor data-migratie.");
+    } catch (err) {
+      addLog(`❌ TOEGANG GEWEIGERD: ${err.code}`);
+      setError(
+        `Schrijf-test mislukt (${err.code}). Je Firestore Rules blokkeren toegang tot de nieuwe root.`
+      );
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  /**
+   * SCAN: Forensisch onderzoek naar collecties
+   * Zoekt via collectionGroup overal in de database naar bekende namen.
+   */
   const runDeepForensicScan = async () => {
     setIsScanning(true);
     setError(null);
@@ -70,247 +113,253 @@ const UniversalRescueTool = () => {
     setLogs([]);
     addLog(`Forensische scan gestart voor Project: ${activeProjectId}`);
 
-    // Lijst van collectie-namen die we MOETEN vinden
     const targetCollections = [
       "products",
       "digital_planning",
       "user_roles",
       "settings",
       "tracked_products",
-    ];
-
-    // We testen ook verschillende AppID variaties die in de loop der tijd gebruikt kunnen zijn
-    const appIdVariations = [
-      currentAppId,
-      "fittings-app-v1",
-      "fpi-factory",
-      "mes-portal",
-      "fittings-app",
+      "inventory",
+      "activity_logs",
     ];
 
     try {
-      // METHODE 1: Collection Groups (Zoekt overal, ongeacht hoe diep de map is)
-      addLog("Start Methode 1: Collection Group Discovery...");
+      addLog("Start Deep Search via Collection Groups...");
       for (const colName of targetCollections) {
-        addLog(`Zoeken naar collectie-naam: '${colName}' overal in DB...`);
         try {
           const groupRef = collectionGroup(db, colName);
           const q = query(groupRef, limit(1));
           const snap = await getDocs(q);
 
           if (!snap.empty) {
-            const foundPath = snap.docs[0].ref.path;
-            addLog(`🔥 HOERA! Data gevonden voor '${colName}'!`);
-            addLog(`📍 Volledig pad: /${foundPath}`);
+            const fullPath = snap.docs[0].ref.path;
+            const folderPath = fullPath.replace(`/${snap.docs[0].id}`, "");
+
+            addLog(`🔥 DATA GEVONDEN: '${colName}'`);
             setFoundCollections((prev) => [
               ...prev,
               {
                 name: colName,
-                path: foundPath.replace(`/${snap.docs[0].id}`, ""),
-                count: "Aanwezig",
-                method: "Global Search",
+                path: folderPath,
+                isNewRoot: folderPath.startsWith("future-factory"),
+                isArtifact: folderPath.startsWith("artifacts"),
               },
             ]);
+          } else {
+            addLog(`- Niets gevonden voor '${colName}'`);
           }
         } catch (e) {
-          addLog(
-            `⚠️ Groep '${colName}' mislukt: ${e.message.substring(0, 40)}...`
-          );
-        }
-      }
-
-      // METHODE 2: Brute Force Path Probing
-      if (foundCollections.length === 0) {
-        addLog("Start Methode 2: Brute Force Path Probing...");
-        const pathTemplates = [
-          (id) => ["artifacts", id, "public", "data"],
-          (id) => ["artifacts", id, "public"],
-          (id) => ["production", id],
-          (id) => [id],
-        ];
-
-        for (const idVar of appIdVariations) {
-          for (const template of pathTemplates) {
-            const basePath = template(idVar);
-            for (const col of targetCollections) {
-              const fullPath = [...basePath, col];
-              try {
-                const colRef = collection(db, ...fullPath);
-                const q = query(colRef, limit(1));
-                const snap = await getDocs(q);
-                if (!snap.empty) {
-                  addLog(`🔥 GEVONDEN via Probing: /${fullPath.join("/")}`);
-                  setFoundCollections((prev) => [
-                    ...prev,
-                    {
-                      name: col,
-                      path: fullPath.join("/"),
-                      count: "Gevonden",
-                      method: "Path Probing",
-                    },
-                  ]);
-                }
-              } catch (e) {}
-            }
-          }
+          addLog(`⚠️ Overslaan '${colName}': Geen leesrechten.`);
         }
       }
 
       if (foundCollections.length === 0) {
         setError(
-          `Geen data gevonden in Project '${activeProjectId}'. Controleer of dit ID klopt met je werkende sandbox.`
+          `Geen data gevonden. Controleer of de API Key in firebase.js echt bij project '${activeProjectId}' hoort.`
         );
       }
       addLog("Scan voltooid.");
     } catch (err) {
-      setError("Fataal: " + err.message);
+      setError("Fataal systeem-onderzoek fout: " + err.message);
     } finally {
       setIsScanning(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 md:p-6 text-white font-sans">
-      <div className="max-w-5xl w-full bg-white/5 border border-white/10 rounded-[50px] p-8 md:p-12 backdrop-blur-xl relative">
-        <div className="flex flex-col md:flex-row items-center gap-6 mb-12">
-          <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center shadow-2xl rotate-3 shrink-0">
-            <SearchCode size={40} />
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 md:p-6 text-white font-sans text-left">
+      <div className="max-w-5xl w-full bg-white/5 border border-white/10 rounded-[50px] p-8 md:p-12 backdrop-blur-xl relative overflow-hidden shadow-2xl">
+        {/* Decoratie */}
+        <div className="absolute -top-20 -right-20 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl"></div>
+
+        <div className="flex flex-col md:flex-row items-center gap-6 mb-12 relative z-10">
+          <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/20 rotate-3 shrink-0">
+            <DatabaseZap size={40} strokeWidth={2.5} />
           </div>
           <div className="text-center md:text-left">
             <h1 className="text-3xl font-black uppercase italic tracking-tighter leading-none">
-              Forensic <span className="text-blue-500">Rescue</span>
+              Database <span className="text-blue-500">Forensics</span>
             </h1>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2 italic">
-              Versie 4.0 | Global Collection Discovery
+              Versie 6.0 | Advanced Rescue & Root Validation
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="space-y-6">
-            <div className="bg-black/40 rounded-[35px] p-8 border border-white/5 text-left space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative z-10">
+          {/* LINKER KOLOM: STATUS & ACTIES */}
+          <div className="lg:col-span-5 space-y-6">
+            <div className="bg-black/40 rounded-[35px] p-8 border border-white/5 space-y-6">
               <h3 className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
-                <Globe size={14} /> Database Vingerafdruk
+                <Globe size={14} /> Systeem Identiteit
               </h3>
-              <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-4">
                 <div>
                   <p className="text-[8px] font-black text-slate-500 uppercase mb-1">
-                    Huidig Project ID (Live):
+                    Live Project ID:
                   </p>
-                  <p className="font-mono text-base text-emerald-400 font-bold">
+                  <p className="font-mono text-lg text-emerald-400 font-bold truncate">
                     {activeProjectId}
                   </p>
                 </div>
-                <div className="pt-2 border-t border-white/5">
-                  <p className="text-[8px] font-black text-slate-500 uppercase mb-1">
-                    Authenticatie Status:
+                <div className="pt-4 border-t border-white/5">
+                  <p className="text-[8px] font-black text-slate-500 uppercase mb-2">
+                    Verbindingsstatus:
                   </p>
-                  <p className="font-mono text-[10px] text-blue-400 italic">
-                    <ShieldCheck size={12} className="inline mr-1" />{" "}
+                  <p className="font-mono text-[10px] text-blue-400 italic bg-blue-500/5 p-3 rounded-xl border border-blue-500/10">
+                    <ShieldCheck
+                      size={12}
+                      className="inline mr-2 text-emerald-500"
+                    />{" "}
                     {authStatus}
                   </p>
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={runDeepForensicScan}
-              disabled={isScanning}
-              className="w-full py-8 bg-blue-600 hover:bg-blue-500 rounded-[35px] font-black uppercase text-sm tracking-[0.3em] transition-all shadow-2xl flex items-center justify-center gap-4 active:scale-95 disabled:opacity-50"
-            >
-              {isScanning ? (
-                <Loader2 className="animate-spin" size={24} />
-              ) : (
-                <Scan size={24} />
-              )}
-              {isScanning ? "Deep Searching..." : "Start Forensische Scan"}
-            </button>
-
-            {error && (
-              <div className="bg-rose-500/10 border-2 border-rose-500/30 p-6 rounded-3xl text-left animate-in shake">
-                <div className="flex items-center gap-3 text-rose-500 mb-2 font-black uppercase text-xs">
-                  <AlertTriangle size={20} /> Geen resultaat
-                </div>
-                <p className="text-sm text-rose-200/80 leading-relaxed">
-                  {error}
-                </p>
-              </div>
-            )}
+            <div className="grid grid-cols-1 gap-4">
+              <button
+                onClick={runWriteTest}
+                disabled={isTesting || isScanning}
+                className="py-6 bg-emerald-600/10 text-emerald-400 border-2 border-emerald-500/30 rounded-[30px] font-black uppercase text-[10px] tracking-widest flex items-center justify-center gap-3 hover:bg-emerald-600/20 transition-all disabled:opacity-50 active:scale-95"
+              >
+                {isTesting ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <TestTube2 size={20} />
+                )}
+                Rules Validatie Test
+              </button>
+              <button
+                onClick={runDeepForensicScan}
+                disabled={isScanning || isTesting}
+                className="py-8 bg-blue-600 text-white rounded-[35px] font-black uppercase text-sm tracking-[0.2em] shadow-xl hover:bg-blue-500 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-4"
+              >
+                {isScanning ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <FolderSearch size={24} />
+                )}
+                Start Deep Scan
+              </button>
+            </div>
           </div>
 
-          <div className="bg-black/60 rounded-[35px] border border-white/10 p-8 flex flex-col h-[450px]">
-            <div className="flex items-center justify-between text-slate-500 mb-4 border-b border-white/5 pb-4">
-              <div className="flex items-center gap-2">
-                <Terminal size={14} />
-                <span className="text-[9px] font-black uppercase tracking-widest text-left">
-                  Discovery Log
-                </span>
+          {/* RECHTER KOLOM: LOGS */}
+          <div className="lg:col-span-7">
+            <div className="bg-black/60 rounded-[40px] border border-white/10 p-8 flex flex-col h-[500px] shadow-inner">
+              <div className="flex items-center justify-between text-slate-500 mb-6 border-b border-white/5 pb-5">
+                <div className="flex items-center gap-2">
+                  <Terminal size={16} className="text-blue-500" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    Forensic Investigation Log
+                  </span>
+                </div>
+                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
               </div>
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 text-left">
-              {logs.length === 0 && (
-                <p className="text-[10px] text-slate-700 italic text-center py-20">
-                  Klaar voor forensisch onderzoek...
-                </p>
-              )}
-              {logs.map((log, i) => (
-                <p
-                  key={i}
-                  className={`text-[11px] font-mono leading-relaxed ${
-                    log.includes("🔥")
-                      ? "text-emerald-400 font-bold bg-emerald-400/5 p-1 rounded"
-                      : log.includes("⚠️")
-                      ? "text-amber-500"
-                      : "text-slate-400"
-                  }`}
-                >
-                  {log}
-                </p>
-              ))}
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+                {logs.length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center opacity-20 italic">
+                    <Search size={48} className="mb-4" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">
+                      Wacht op scan-trigger...
+                    </p>
+                  </div>
+                ) : (
+                  logs.map((log, i) => (
+                    <p
+                      key={i}
+                      className={`text-[11px] font-mono leading-relaxed p-2 rounded-lg ${
+                        log.includes("✅") || log.includes("🔥")
+                          ? "bg-emerald-500/10 text-emerald-400 border-l-2 border-emerald-500"
+                          : log.includes("❌")
+                          ? "bg-rose-500/10 text-rose-400 border-l-2 border-rose-500"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {log}
+                    </p>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
 
+        {/* GEVONDEN LOCATIES OVERVIEW */}
         {foundCollections.length > 0 && (
           <div className="mt-10 space-y-4 animate-in slide-in-from-bottom-6 duration-700">
-            <h3 className="text-xs font-black text-emerald-400 uppercase tracking-widest ml-4 text-left flex items-center gap-2">
-              <CheckCircle2 size={16} /> Locaties gevonden in Project '
-              {activeProjectId}':
+            <h3 className="text-xs font-black text-emerald-400 uppercase tracking-widest ml-6 flex items-center gap-2">
+              <CheckCircle2 size={16} /> Gevonden Databronnen in Root:
             </h3>
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {foundCollections.map((col, i) => (
                 <div
                   key={i}
-                  className="bg-emerald-500/10 border border-emerald-500/30 p-6 rounded-[30px] flex items-center justify-between text-left group hover:bg-emerald-500/20 transition-all"
+                  className="bg-white/5 border border-white/10 p-6 rounded-[30px] flex items-center justify-between hover:bg-white/10 transition-all group"
                 >
                   <div className="flex items-center gap-5">
-                    <div className="p-4 bg-emerald-500/20 rounded-2xl text-emerald-400 shadow-inner">
+                    <div
+                      className={`p-4 rounded-2xl shadow-inner ${
+                        col.isNewRoot
+                          ? "bg-blue-600/20 text-blue-400"
+                          : "bg-amber-600/20 text-amber-400"
+                      }`}
+                    >
                       <Database size={24} />
                     </div>
-                    <div>
-                      <p className="text-xs font-black text-emerald-400 uppercase tracking-widest leading-none mb-2">
-                        {col.name}
+                    <div className="text-left overflow-hidden">
+                      <p
+                        className={`text-xs font-black uppercase tracking-widest mb-1 ${
+                          col.isNewRoot ? "text-blue-400" : "text-amber-400"
+                        }`}
+                      >
+                        {col.name}{" "}
+                        {col.isNewRoot && (
+                          <span className="text-[8px] bg-blue-500 text-white px-1.5 py-0.5 rounded ml-2">
+                            Root Ready
+                          </span>
+                        )}
                       </p>
-                      <code className="text-sm font-mono text-slate-200 select-all">
+                      <code className="text-[10px] font-mono text-slate-400 truncate block">
                         /{col.path}/{col.name}
                       </code>
-                      <p className="text-[8px] font-bold text-slate-500 uppercase mt-2">
-                        Methode: {col.method}
-                      </p>
                     </div>
                   </div>
+                  <ChevronRight
+                    size={18}
+                    className="text-slate-700 group-hover:text-white transition-colors shrink-0"
+                  />
                 </div>
               ))}
             </div>
-            <div className="p-6 bg-blue-600/10 border border-blue-500/30 rounded-[30px] text-left">
-              <p className="text-xs text-blue-300 font-bold leading-relaxed">
-                <Zap size={14} className="inline mr-2" />
-                ACTIE: Kopieer de <b>witte code-regels</b> hierboven. Dit zijn
-                de paden waar jouw data staat. Stuur ze naar mij!
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-8 p-6 bg-rose-500/10 border-2 border-rose-500/30 rounded-[30px] flex items-start gap-5 animate-in shake">
+            <AlertTriangle size={32} className="text-rose-500 shrink-0" />
+            <div className="text-left">
+              <h4 className="text-sm font-black uppercase text-rose-400">
+                Scan Onderbroken
+              </h4>
+              <p className="text-xs text-rose-200/70 leading-relaxed mt-1">
+                {error}
               </p>
             </div>
           </div>
         )}
+
+        {/* FEEDBACK INSTRUCTIE */}
+        <div className="mt-12 pt-8 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-6 opacity-60">
+          <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-slate-500">
+            <ShieldCheck size={14} /> Systeem: Future Factory MES Forensic Tool
+          </div>
+          <div className="bg-blue-600/20 text-blue-400 px-6 py-2 rounded-full border border-blue-500/20 text-[9px] font-black uppercase tracking-[0.2em] italic">
+            Ready for Node Migration
+          </div>
+        </div>
       </div>
     </div>
   );

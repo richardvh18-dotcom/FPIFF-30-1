@@ -1,108 +1,150 @@
 import React, { useState } from "react";
-import { X, CheckCircle, AlertTriangle, Printer } from "lucide-react"; // Printer icoon
-import ProductionStartModal from "./ProductionStartModal"; // Importeer de modal
+import {
+  X,
+  CheckCircle2,
+  AlertTriangle,
+  Printer,
+  ClipboardCheck,
+  MessageSquare,
+  ShieldCheck,
+  Zap,
+  Loader2,
+} from "lucide-react";
+import ProductionStartModal from "./ProductionStartModal";
 
+/**
+ * InspectionModal V2.0 - Final Quality Assurance
+ * Used at the BM01 station for final product release and label printing.
+ */
 const InspectionModal = ({ isOpen, onClose, order, onInspect }) => {
   const [status, setStatus] = useState("approved");
   const [notes, setNotes] = useState("");
-
-  // State voor Label Modal
   const [showLabelModal, setShowLabelModal] = useState(false);
 
   if (!isOpen || !order) return null;
 
   const handleSubmit = () => {
+    // onInspect handles the database write in the parent component
     onInspect(order.id, status, notes);
     onClose();
   };
 
   return (
     <>
-      <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-          <div className="bg-slate-900 text-white p-6 flex justify-between items-start">
-            <div>
-              <h3 className="text-lg font-black uppercase italic">
+      <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-md z-[150] flex items-center justify-center p-4 animate-in fade-in duration-300">
+        <div className="bg-white w-full max-w-lg rounded-[40px] shadow-[0_40px_100px_rgba(0,0,0,0.3)] border border-slate-100 overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col">
+          {/* Header Unit */}
+          <div className="bg-slate-900 text-white p-8 flex justify-between items-start relative overflow-hidden shrink-0">
+            <div className="absolute top-0 right-0 p-8 opacity-5 rotate-12">
+              <ShieldCheck size={120} />
+            </div>
+            <div className="relative z-10 text-left">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-blue-600 rounded-xl shadow-lg shadow-blue-500/20">
+                  <ClipboardCheck size={20} strokeWidth={2.5} />
+                </div>
+                <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] italic">
+                  Quality Control
+                </span>
+              </div>
+              <h3 className="text-2xl font-black uppercase italic tracking-tighter leading-none">
                 Eindinspectie
               </h3>
-              <p className="text-slate-400 text-sm">{order.lotNumber}</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase mt-2 tracking-widest flex items-center gap-2">
+                <Zap size={10} className="text-blue-500" /> Lot:{" "}
+                {order.lotNumber || "Onbekend"}
+              </p>
             </div>
 
-            <div className="flex gap-2">
-              {/* PRINT KNOP (Nieuw) */}
+            <div className="flex gap-3 relative z-10">
               <button
                 onClick={() => setShowLabelModal(true)}
-                className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+                className="p-3 bg-white/10 hover:bg-blue-600 rounded-2xl text-white transition-all shadow-xl active:scale-90 border border-white/10"
                 title="Print Labels / Stroken"
               >
-                <Printer size={20} />
+                <Printer size={22} />
               </button>
-
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl transition-all border border-white/5 active:scale-90"
               >
-                <X size={20} />
+                <X size={22} />
               </button>
             </div>
           </div>
 
-          <div className="p-6 space-y-6">
-            {/* Status Selectie */}
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => setStatus("approved")}
-                className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
-                  status === "approved"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                    : "border-slate-100 hover:border-slate-200 text-slate-400"
-                }`}
-              >
-                <CheckCircle size={32} />
-                <span className="font-bold uppercase text-xs tracking-wider">
-                  Goedgekeurd
-                </span>
-              </button>
+          {/* Form Content */}
+          <div className="p-10 space-y-10 text-left">
+            {/* Status Selection */}
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                1. Oordeel Kwaliteit
+              </label>
+              <div className="grid grid-cols-2 gap-6">
+                <button
+                  onClick={() => setStatus("approved")}
+                  className={`p-6 rounded-[30px] border-2 flex flex-col items-center gap-3 transition-all active:scale-95 shadow-sm ${
+                    status === "approved"
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-8 ring-emerald-500/5 shadow-emerald-100"
+                      : "border-slate-100 bg-slate-50/50 text-slate-300 hover:border-slate-200"
+                  }`}
+                >
+                  <CheckCircle2 size={40} strokeWidth={2.5} />
+                  <span className="font-black uppercase text-[10px] tracking-[0.2em] italic">
+                    Goedgekeurd
+                  </span>
+                </button>
 
-              <button
-                onClick={() => setStatus("rejected")}
-                className={`p-4 rounded-xl border-2 flex flex-col items-center gap-2 transition-all ${
-                  status === "rejected"
-                    ? "border-red-500 bg-red-50 text-red-700"
-                    : "border-slate-100 hover:border-slate-200 text-slate-400"
-                }`}
-              >
-                <AlertTriangle size={32} />
-                <span className="font-bold uppercase text-xs tracking-wider">
-                  Afgekeurd
-                </span>
-              </button>
+                <button
+                  onClick={() => setStatus("rejected")}
+                  className={`p-6 rounded-[30px] border-2 flex flex-col items-center gap-3 transition-all active:scale-95 shadow-sm ${
+                    status === "rejected"
+                      ? "border-rose-500 bg-rose-50 text-rose-700 ring-8 ring-rose-500/5 shadow-rose-100"
+                      : "border-slate-100 bg-slate-50/50 text-slate-300 hover:border-slate-200"
+                  }`}
+                >
+                  <AlertTriangle size={40} strokeWidth={2.5} />
+                  <span className="font-black uppercase text-[10px] tracking-[0.2em] italic">
+                    Afgekeurd
+                  </span>
+                </button>
+              </div>
             </div>
 
-            {/* Opmerkingen */}
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-2">
-                Opmerkingen (Optioneel)
+            {/* Notes Section */}
+            <div className="space-y-3">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                <MessageSquare size={12} /> 2. Bevindingen (Optioneel)
               </label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none min-h-[100px]"
-                placeholder="Bijv. kras op flens..."
+                className="w-full bg-slate-50 border-2 border-slate-100 rounded-[25px] p-5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:bg-white outline-none min-h-[120px] transition-all shadow-inner placeholder:text-slate-300 italic"
+                placeholder="Beschrijf eventuele afwijkingen of bijzonderheden..."
               />
             </div>
 
-            {/* Actie Knop */}
-            <button
-              onClick={handleSubmit}
-              className={`w-full py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg transition-all ${
-                status === "approved"
-                  ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200"
-                  : "bg-red-600 hover:bg-red-700 text-white shadow-red-200"
-              }`}
-            >
-              Bevestigen
-            </button>
+            {/* Action Button */}
+            <div className="pt-4">
+              <button
+                onClick={handleSubmit}
+                className={`w-full py-6 rounded-[25px] font-black text-sm uppercase tracking-[0.3em] shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3 ${
+                  status === "approved"
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/20"
+                    : "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-900/20"
+                }`}
+              >
+                <CheckCircle2 size={20} />
+                Inspectie Bevestigen
+              </button>
+            </div>
+          </div>
+
+          {/* Footer Info */}
+          <div className="bg-slate-50 p-4 text-center border-t border-slate-100 opacity-40">
+            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.4em]">
+              Audit Node: BM01_QA_RELEASE
+            </p>
           </div>
         </div>
       </div>
@@ -113,7 +155,6 @@ const InspectionModal = ({ isOpen, onClose, order, onInspect }) => {
           isOpen={showLabelModal}
           onClose={() => setShowLabelModal(false)}
           order={order}
-          // "EINDINSPECTIE" activeert de "Stroken Printen" optie in de modal
           stationId="EINDINSPECTIE"
           onStart={() => setShowLabelModal(false)}
           existingProducts={[]}

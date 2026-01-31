@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Wrench,
   MapPin,
@@ -11,19 +11,35 @@ import {
   PackageCheck,
   Hash,
   ArrowUpDown,
+  ShieldCheck,
+  Database,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
-import { doc, setDoc, deleteDoc } from "firebase/firestore";
-import { db, appId, auth, logActivity } from "../../config/firebase";
+import {
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  collection,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db, auth, logActivity } from "../../config/firebase";
+import { PATHS } from "../../config/dbPaths";
 import { STANDARD_DIAMETERS, STANDARD_PRESSURES } from "../../data/constants";
 
 /**
- * AdminLocationsView: Register van gereedschappen en stelling-locaties.
- * Functies voor bewerken zijn nu beveiligd met de canEdit prop.
+ * AdminLocationsView V4.0 - Root Sync Edition
+ * Beheert gereedschappen en stelling-locaties in de root.
+ * Locatie: /future-factory/production/inventory/records/
  */
-const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
+const AdminLocationsView = ({ canEdit = false }) => {
+  const [moffen, setMoffen] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const [formState, setFormState] = useState({
     type: "TB",
@@ -34,6 +50,26 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
     minStock: 5,
     toolName: "",
   });
+
+  // 1. Live Sync met de Root INVENTORY collectie
+  useEffect(() => {
+    const colRef = collection(db, ...PATHS.INVENTORY);
+
+    const unsubscribe = onSnapshot(
+      colRef,
+      (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setMoffen(data);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Fout bij laden inventaris:", err);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   const filteredMoffen = useMemo(() => {
     return moffen
@@ -48,10 +84,14 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!canEdit) return;
+    setSaving(true);
+
     try {
       const docId =
         editingId ||
-        `${formState.type}_${formState.diameter}_${formState.pressure}`.toLowerCase();
+        `${formState.type}_ID${formState.diameter}_PN${formState.pressure}`.toUpperCase();
+      const docRef = doc(db, ...PATHS.INVENTORY, docId);
+
       const data = {
         ...formState,
         id: docId,
@@ -59,44 +99,81 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
         pressure: Number(formState.pressure),
         stock: Number(formState.stock),
         minStock: Number(formState.minStock),
-        updatedAt: new Date(),
+        lastUpdated: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || "Admin",
       };
 
-      await setDoc(
-        doc(db, "artifacts", appId, "public", "data", "moffen", docId),
-        data
-      );
+      await setDoc(docRef, data, { merge: true });
+
       logActivity(
-        auth.currentUser,
+        auth.currentUser?.uid,
         editingId ? "TOOL_UPDATE" : "TOOL_ADD",
-        `Gereedschap ${data.type} ID${data.diameter} aangepast.`
+        `Gereedschap ${data.id} bijgewerkt op locatie ${data.location}`
       );
 
       setIsEditing(false);
       setEditingId(null);
     } catch (err) {
-      console.error(err);
+      console.error("Opslagfout:", err);
+      alert("Kon gegevens niet opslaan.");
+    } finally {
+      setSaving(false);
     }
   };
 
+  const handleDelete = async (id) => {
+    if (
+      !window.confirm("Dit gereedschap permanent verwijderen uit het register?")
+    )
+      return;
+    try {
+      await deleteDoc(doc(db, ...PATHS.INVENTORY, id));
+      logActivity(
+        auth.currentUser?.uid,
+        "TOOL_DELETE",
+        `Gereedschap ${id} verwijderd.`
+      );
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  if (loading)
+    return (
+      <div className="p-20 text-center flex flex-col items-center gap-4 h-full justify-center">
+        <Loader2 className="animate-spin text-blue-500" size={40} />
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
+          Inventaris synchroniseren...
+        </p>
+      </div>
+    );
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6 animate-in h-full flex flex-col">
-      <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6">
-        <div className="flex items-center gap-4">
-          <div className="p-4 bg-emerald-600 text-white rounded-2xl shadow-xl shadow-emerald-100">
-            <Wrench size={28} />
+    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 h-full flex flex-col text-left">
+      {/* HEADER UNIT */}
+      <div className="bg-white p-8 rounded-[40px] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6 overflow-hidden relative">
+        <div className="absolute top-0 right-0 p-8 opacity-5 rotate-12">
+          <Wrench size={120} />
+        </div>
+        <div className="flex items-center gap-6 relative z-10">
+          <div className="p-4 bg-emerald-600 text-white rounded-3xl shadow-xl shadow-emerald-100">
+            <Wrench size={32} />
           </div>
-          <div>
-            <h2 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none text-center md:text-left">
-              Gereedschappen & Voorraad
+          <div className="text-left">
+            <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
+              Gereedschap <span className="text-emerald-600">&</span> Voorraad
             </h2>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.3em] mt-2 italic text-center md:text-left">
-              Locatie-register van matrijzen en koppelingen
-            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded border border-emerald-100 uppercase italic">
+                <ShieldCheck size={10} /> Root Protected
+              </span>
+              <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
+                Target: /{PATHS.INVENTORY.join("/")}
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* Knop alleen tonen in Admin Mode */}
         {canEdit && (
           <button
             onClick={() => {
@@ -112,106 +189,103 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
               });
               setIsEditing(true);
             }}
-            className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase shadow-xl flex items-center gap-3 hover:bg-emerald-600 transition-all"
+            className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center gap-3 hover:bg-blue-600 transition-all active:scale-95 relative z-10"
           >
-            <Plus size={18} /> Nieuw Item
+            <Plus size={18} /> Nieuw Registreren
           </button>
         )}
       </div>
 
-      <div className="relative">
+      {/* SEARCH BAR */}
+      <div className="relative group">
         <Search
-          className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300"
-          size={20}
+          className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors"
+          size={22}
         />
         <input
-          className="w-full pl-14 pr-6 py-4 bg-white border border-slate-200 rounded-3xl outline-none focus:ring-4 focus:ring-emerald-500/10 font-bold text-sm transition-all"
-          placeholder="Zoek op ID, type of stelling (bijv. S-04)..."
+          className="w-full pl-16 pr-8 py-5 bg-white border-2 border-slate-100 rounded-[30px] outline-none focus:border-blue-500 shadow-sm font-bold text-base transition-all placeholder:text-slate-300"
+          placeholder="Zoek op ID, Type of Locatie (bijv. S-04)..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
       </div>
 
-      <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex-1 mb-20">
+      {/* DATA GRID / TABLE */}
+      <div className="bg-white rounded-[50px] border border-slate-200 shadow-sm overflow-hidden flex-1 mb-10">
         <div className="overflow-y-auto h-full custom-scrollbar">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b sticky top-0 z-10">
+            <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] border-b sticky top-0 z-10 shadow-sm">
               <tr>
-                <th className="px-8 py-5">Type / Maat</th>
-                <th className="px-8 py-5">Locatie in Stellingen</th>
-                <th className="px-8 py-5 text-center">Aantal</th>
-                {canEdit && <th className="px-8 py-5 text-right">Acties</th>}
+                <th className="px-10 py-6">Specificatie (Type/ID/PN)</th>
+                <th className="px-10 py-6">Opslag Locatie</th>
+                <th className="px-10 py-6 text-center">Huidige Voorraad</th>
+                {canEdit && <th className="px-10 py-6 text-right">Beheer</th>}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-50">
               {filteredMoffen.map((m) => (
                 <tr
                   key={m.id}
-                  className="hover:bg-slate-50/50 group transition-colors"
+                  className="hover:bg-blue-50/30 group transition-all"
                 >
-                  <td className="px-8 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="px-2 py-1 bg-slate-900 text-white text-[10px] font-black rounded uppercase">
+                  <td className="px-10 py-5">
+                    <div className="flex items-center gap-4">
+                      <div className="px-3 py-1.5 bg-slate-900 text-white text-[10px] font-black rounded-lg uppercase italic shadow-sm">
                         {m.type}
                       </div>
-                      <span className="font-black text-slate-800">
-                        ID {m.diameter}{" "}
-                        <span className="text-slate-300 ml-1">
-                          PN {m.pressure}
+                      <div className="flex flex-col">
+                        <span className="font-black text-slate-900 text-lg tracking-tighter italic">
+                          ID {m.diameter}
                         </span>
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                          PN {m.pressure} Bar
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-10 py-5">
+                    <div className="flex items-center gap-2.5 text-blue-600 font-black italic uppercase tracking-tighter">
+                      <MapPin size={16} className="text-blue-400" />
+                      {m.location || "GEEN LOCATIE"}
+                    </div>
+                  </td>
+                  <td className="px-10 py-5 text-center">
+                    <div className="inline-flex flex-col items-center">
+                      <span
+                        className={`text-2xl font-black italic tracking-tighter ${
+                          m.stock <= m.minStock
+                            ? "text-rose-600 animate-pulse"
+                            : "text-slate-900"
+                        }`}
+                      >
+                        {m.stock}
                       </span>
+                      {m.stock <= m.minStock && (
+                        <span className="text-[8px] font-black text-rose-500 uppercase mt-1">
+                          Lage Voorraad!
+                        </span>
+                      )}
                     </div>
-                  </td>
-                  <td className="px-8 py-4">
-                    <div className="flex items-center gap-2 text-blue-600 font-black italic">
-                      <MapPin size={14} />
-                      {m.location || "Niet toegewezen"}
-                    </div>
-                  </td>
-                  <td className="px-8 py-4 text-center">
-                    <span
-                      className={`text-lg font-black ${
-                        m.stock <= m.minStock
-                          ? "text-red-600"
-                          : "text-slate-800"
-                      }`}
-                    >
-                      {m.stock}
-                    </span>
                   </td>
 
-                  {/* Actie knoppen alleen tonen in Admin Mode */}
                   {canEdit && (
-                    <td className="px-8 py-4 text-right">
-                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100">
+                    <td className="px-10 py-5 text-right opacity-0 group-hover:opacity-100 transition-all">
+                      <div className="flex justify-end gap-1">
                         <button
                           onClick={() => {
                             setFormState(m);
                             setEditingId(m.id);
                             setIsEditing(true);
                           }}
-                          className="p-3 hover:text-blue-600 transition-all"
+                          className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
                         >
-                          <Edit2 size={16} />
+                          <Edit2 size={18} />
                         </button>
                         <button
-                          onClick={async () => {
-                            if (window.confirm("Verwijderen?"))
-                              await deleteDoc(
-                                doc(
-                                  db,
-                                  "artifacts",
-                                  appId,
-                                  "public",
-                                  "data",
-                                  "moffen",
-                                  m.id
-                                )
-                              );
-                          }}
-                          className="p-3 hover:text-red-600 transition-all"
+                          onClick={() => handleDelete(m.id)}
+                          className="p-3 bg-slate-50 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                         >
-                          <Trash2 size={16} />
+                          <Trash2 size={18} />
                         </button>
                       </div>
                     </td>
@@ -220,41 +294,52 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
               ))}
             </tbody>
           </table>
+
+          {filteredMoffen.length === 0 && (
+            <div className="p-32 text-center opacity-30 italic flex flex-col items-center gap-4">
+              <Database size={64} className="text-slate-200" />
+              <p className="text-sm font-black uppercase tracking-[0.3em] text-slate-400">
+                Geen gereedschap gevonden
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* EDIT MODAL */}
       {isEditing && canEdit && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl overflow-hidden animate-in">
-            <div className="p-8 border-b flex justify-between items-center bg-slate-50/50">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-emerald-600 text-white rounded-2xl shadow-lg">
-                  <PackageCheck size={24} />
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10">
+            <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-5">
+                <div className="p-3.5 bg-emerald-600 text-white rounded-2xl shadow-xl shadow-emerald-200">
+                  <PackageCheck size={28} />
                 </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 uppercase italic leading-none">
-                    Item Registreren
+                <div className="text-left">
+                  <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
+                    Item <span className="text-emerald-600">Registreren</span>
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                    Stellingen & Voorraad
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1.5 italic">
+                    Stellingen & Voorraadbeheer
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsEditing(false)}
-                className="p-3 hover:bg-red-50 text-slate-300 rounded-full"
+                className="p-3 hover:bg-slate-200 text-slate-300 rounded-2xl transition-all"
               >
-                <X size={24} />
+                <X size={28} />
               </button>
             </div>
-            <form onSubmit={handleSave} className="p-10 space-y-8">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+
+            <form onSubmit={handleSave} className="p-12 space-y-10">
+              <div className="grid grid-cols-2 gap-8 text-left">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
                     Type
                   </label>
                   <select
-                    className="w-full p-4 bg-slate-50 border rounded-2xl font-bold"
+                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500 appearance-none cursor-pointer"
                     value={formState.type}
                     onChange={(e) =>
                       setFormState({ ...formState, type: e.target.value })
@@ -262,14 +347,15 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
                   >
                     <option value="TB">TB (Taper Bell)</option>
                     <option value="CB">CB (Cylindrical Bell)</option>
+                    <option value="ID">Matrijs (Inner Die)</option>
                   </select>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
                     Diameter
                   </label>
                   <select
-                    className="w-full p-4 bg-slate-50 border rounded-2xl font-bold"
+                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-slate-800 outline-none focus:border-blue-500 appearance-none cursor-pointer"
                     value={formState.diameter}
                     onChange={(e) =>
                       setFormState({ ...formState, diameter: e.target.value })
@@ -277,24 +363,25 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
                   >
                     {STANDARD_DIAMETERS.map((d) => (
                       <option key={d} value={d}>
-                        {d} mm
+                        ID {d} mm
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest ml-1">
+
+              <div className="space-y-2 text-left">
+                <label className="text-[10px] font-black text-emerald-600 uppercase tracking-[0.2em] ml-2 italic">
                   Stelling Locatie Code
                 </label>
-                <div className="relative">
+                <div className="relative group">
                   <MapPin
-                    className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500"
-                    size={20}
+                    className="absolute left-5 top-1/2 -translate-y-1/2 text-emerald-500 transition-transform group-focus-within:scale-125"
+                    size={24}
                   />
                   <input
-                    className="w-full pl-12 pr-4 py-4 bg-emerald-50/30 border border-emerald-100 rounded-2xl font-black text-slate-800"
-                    placeholder="Bijv. S-04-A"
+                    className="w-full pl-16 pr-6 py-5 bg-emerald-50/30 border-2 border-emerald-100 rounded-[25px] font-black text-xl text-slate-900 outline-none focus:border-emerald-500 shadow-inner tracking-widest"
+                    placeholder="S-00-A"
                     value={formState.location}
                     onChange={(e) =>
                       setFormState({
@@ -306,27 +393,28 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-6 pt-4 border-t">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase ml-1">
-                    Aantal
+
+              <div className="grid grid-cols-2 gap-8 pt-6 border-t border-slate-50">
+                <div className="space-y-2 text-left">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">
+                    Huidige Voorraad
                   </label>
                   <input
                     type="number"
-                    className="w-full p-4 bg-slate-50 border rounded-2xl font-black"
+                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl font-black text-2xl text-center outline-none focus:border-blue-500"
                     value={formState.stock}
                     onChange={(e) =>
                       setFormState({ ...formState, stock: e.target.value })
                     }
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-red-400 uppercase ml-1">
-                    Min. Voorraad
+                <div className="space-y-2 text-left">
+                  <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-2">
+                    Min. Alarmgrens
                   </label>
                   <input
                     type="number"
-                    className="w-full p-4 bg-slate-50 border rounded-2xl font-black"
+                    className="w-full p-5 bg-rose-50/30 border-2 border-rose-100 rounded-2xl font-black text-2xl text-center outline-none focus:border-rose-500"
                     value={formState.minStock}
                     onChange={(e) =>
                       setFormState({ ...formState, minStock: e.target.value })
@@ -334,11 +422,18 @@ const AdminLocationsView = ({ moffen = [], canEdit = false }) => {
                   />
                 </div>
               </div>
+
               <button
                 type="submit"
-                className="w-full py-5 bg-slate-900 text-white font-black uppercase text-xs rounded-3xl shadow-2xl hover:bg-emerald-600 transition-all flex items-center justify-center gap-2"
+                disabled={saving}
+                className="w-full py-7 bg-slate-900 text-white font-black uppercase text-sm tracking-[0.3em] rounded-[30px] shadow-2xl hover:bg-blue-600 transition-all flex items-center justify-center gap-4 active:scale-95 disabled:opacity-50"
               >
-                <Save size={18} /> Gegevens Opslaan
+                {saving ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Save size={24} />
+                )}
+                Gegevens Publiceren naar Root
               </button>
             </form>
           </div>

@@ -6,37 +6,38 @@ import {
   CheckCircle,
   AlertTriangle,
   ArrowLeft,
-  Database,
   Layers,
-  Package,
   Ruler,
   LayoutDashboard,
   FileText,
   Settings,
   FileUp,
+  Database,
+  Loader2,
+  TableProperties,
+  Target,
 } from "lucide-react";
-// AANGEPAST: getDoc toegevoegd aan imports om data op te kunnen halen
-import { doc, setDoc, getDoc } from "firebase/firestore";
-import { db, appId } from "../../../config/firebase";
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../../../config/firebase";
+import { PATHS, isValidPath } from "../../../config/dbPaths";
 
-// Imports van de sub-componenten
-import MatrixView from "./MatrixView";
+// Sub-componenten
+import AvailabilityView from "./AvailabilityView";
 import LibraryView from "./LibraryView";
 import BlueprintsView from "./BlueprintsView";
 import DimensionsView from "./DimensionsView";
 import SpecsView from "./SpecsView";
 import BulkUploadView from "./BulkUploadView";
-import AdminDashboard from "../AdminDashboard";
+import MatrixRangesView from "./MatrixRangesView";
+import AdminDrillingView from "./AdminDrillingView"; // NIEUW: Boorpatronen beheer
 
-const AdminMatrixManager = ({
-  productRange,
-  productTemplates,
-  generalConfig,
-  onBack,
-  stats = {},
-}) => {
+/**
+ * AdminMatrixManager V7.5 - Full Access Edition
+ * Beheert de volledige technische intelligentie inclusief boorpatronen (Drilling).
+ */
+const AdminMatrixManager = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState("matrix");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState({ type: "", msg: "" });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -54,142 +55,55 @@ const AdminMatrixManager = ({
   });
   const [blueprints, setBlueprints] = useState({});
 
-  // NIEUW: Data ophalen als deze niet via props binnenkomt
+  const addLog = (type, msg) => {
+    setStatus({ type, msg });
+    if (type === "error") console.error(`[MatrixManager] ${msg}`);
+  };
+
+  // 1. DATA INITIALISATIE UIT ROOT
   useEffect(() => {
     const fetchData = async () => {
-      // Als data via props is meegegeven, gebruik die (sneller)
-      if (productRange && generalConfig && productTemplates) {
-        setMatrixData(productRange);
-        setLibraryData({
-          connections: generalConfig.connections || [],
-          labels: generalConfig.labels || [],
-          extraCodes: generalConfig.extraCodes || generalConfig.codes || [],
-          product_names: generalConfig.product_names || [],
-          pns: generalConfig.pns
-            ? [...generalConfig.pns].sort((a, b) => a - b)
-            : [],
-          diameters: generalConfig.diameters
-            ? [...generalConfig.diameters].sort((a, b) => a - b)
-            : [],
-          angles: generalConfig.angles
-            ? [...generalConfig.angles].sort((a, b) => a - b)
-            : [],
-          borings: generalConfig.borings || [],
-        });
-        setBlueprints(productTemplates);
-        return;
-      }
-
-      // Anders: Zelf ophalen uit Firestore
       setLoading(true);
       try {
-        console.log("📥 MatrixManager: Data ophalen uit settings...");
+        if (!isValidPath("MATRIX_CONFIG") || !isValidPath("GENERAL_SETTINGS")) {
+          throw new Error("Systeempaden niet correct geconfigureerd.");
+        }
 
-        // We halen de 3 hoofdbestanden op uit de 'settings' collectie
         const [rangeSnap, configSnap, templatesSnap] = await Promise.all([
-          getDoc(
-            doc(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "settings",
-              "product_range"
-            )
-          ),
-          getDoc(
-            doc(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "settings",
-              "general_config"
-            )
-          ),
-          getDoc(
-            doc(
-              db,
-              "artifacts",
-              appId,
-              "public",
-              "data",
-              "settings",
-              "product_templates"
-            )
-          ),
+          getDoc(doc(db, ...PATHS.MATRIX_CONFIG)),
+          getDoc(doc(db, ...PATHS.GENERAL_SETTINGS)),
+          getDoc(doc(db, ...PATHS.BLUEPRINTS)),
         ]);
 
-        // 1. Matrix (Beschikbaarheid)
-        if (rangeSnap.exists()) {
-          setMatrixData(rangeSnap.data());
-        }
+        if (rangeSnap.exists()) setMatrixData(rangeSnap.data());
+        if (configSnap.exists()) setLibraryData(configSnap.data());
+        if (templatesSnap.exists()) setBlueprints(templatesSnap.data());
 
-        // 2. Library (Algemene Instellingen)
-        if (configSnap.exists()) {
-          const config = configSnap.data();
-          setLibraryData({
-            connections: config.connections || [],
-            labels: config.labels || [],
-            extraCodes: config.extraCodes || config.codes || [],
-            product_names: config.product_names || [],
-            pns: config.pns ? [...config.pns].sort((a, b) => a - b) : [],
-            diameters: config.diameters
-              ? [...config.diameters].sort((a, b) => a - b)
-              : [],
-            angles: config.angles
-              ? [...config.angles].sort((a, b) => a - b)
-              : [],
-            borings: config.borings || [],
-          });
-        }
-
-        // 3. Blauwdrukken
-        if (templatesSnap.exists()) {
-          setBlueprints(templatesSnap.data());
-        }
+        console.log("✅ Matrix Hub: Alle data gesynchroniseerd.");
       } catch (err) {
-        console.error("❌ Fout bij laden matrix data:", err);
-        setStatus({ type: "error", msg: "Kon instellingen niet ophalen." });
+        addLog("error", `Sync fout: ${err.message}`);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [productRange, generalConfig, productTemplates]);
+  }, []);
 
-  const handleNavigate = (targetId) => {
-    switch (targetId) {
-      case "admin_matrix":
-        setActiveTab("matrix");
-        break;
-      case "admin_settings":
-        setActiveTab("library");
-        break;
-      case "admin_upload":
-        setActiveTab("admin_upload");
-        break;
-      default:
-        setActiveTab(targetId);
-    }
-  };
-
+  // 2. CENTRAAL OPSLAAN (Voor tabs die state in de parent beheren)
   const handleSave = async () => {
     setLoading(true);
-    let targetDoc = "";
+    let pathArray = [];
     let data = {};
 
     if (activeTab === "matrix") {
-      targetDoc = "product_range";
+      pathArray = PATHS.MATRIX_CONFIG;
       data = matrixData;
     } else if (activeTab === "library") {
-      targetDoc = "general_config";
+      pathArray = PATHS.GENERAL_SETTINGS;
       data = libraryData;
     } else if (activeTab === "blueprints") {
-      targetDoc = "product_templates";
+      pathArray = PATHS.BLUEPRINTS;
       data = blueprints;
     } else {
       setLoading(false);
@@ -198,23 +112,29 @@ const AdminMatrixManager = ({
 
     try {
       await setDoc(
-        doc(db, "artifacts", appId, "public", "data", "settings", targetDoc),
-        data,
+        doc(db, ...pathArray),
+        {
+          ...data,
+          lastUpdated: serverTimestamp(),
+          updatedBy: "Admin Hub Core",
+        },
         { merge: true }
       );
-      setStatus({ type: "success", msg: "Opgeslagen!" });
+
+      addLog("success", "Wijzigingen live gepubliceerd!");
       setHasUnsavedChanges(false);
     } catch (e) {
-      console.error("Save error:", e);
-      setStatus({ type: "error", msg: "Fout bij opslaan." });
+      addLog("error", `Opslaan mislukt: ${e.message}`);
     } finally {
       setLoading(false);
-      setTimeout(() => setStatus({ type: "", msg: "" }), 3000);
+      setTimeout(() => setStatus({ type: "", msg: "" }), 4000);
     }
   };
 
   const TABS = [
     { id: "matrix", label: "Beschikbaarheid", icon: <Grid size={14} /> },
+    { id: "drilling", label: "Boringen", icon: <Target size={14} /> }, // NIEUW: Tab voor boorpatronen
+    { id: "ranges", label: "Wanddiktes", icon: <TableProperties size={14} /> },
     { id: "library", label: "Bibliotheek", icon: <Settings size={14} /> },
     { id: "blueprints", label: "Blauwdrukken", icon: <Layers size={14} /> },
     { id: "dimensions", label: "Maatvoering", icon: <Ruler size={14} /> },
@@ -222,24 +142,24 @@ const AdminMatrixManager = ({
     { id: "specs", label: "Overzicht", icon: <FileText size={14} /> },
   ];
 
+  if (loading && Object.keys(matrixData).length === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4">
+        <Loader2 className="animate-spin text-blue-600" size={48} />
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
+          Matrix Hub Laden...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-full bg-slate-50 w-full items-center text-left">
-      <div className="bg-white border-b border-slate-200 px-8 py-4 flex justify-center items-center shrink-0 shadow-sm z-20 relative w-full h-20">
-        <div className="absolute left-8 flex items-center">
-          <button
-            onClick={onBack}
-            className="p-3 hover:bg-slate-100 rounded-2xl text-slate-400 transition-all flex items-center gap-2 text-xs font-black uppercase tracking-widest group"
-          >
-            <ArrowLeft
-              size={18}
-              className="group-hover:-translate-x-1 transition-transform"
-            />{" "}
-            Terug
-          </button>
-        </div>
+      {/* Header Unit */}
+      <div className="bg-white border-b border-slate-200 px-8 py-4 flex justify-between items-center shrink-0 shadow-sm z-20 w-full h-20">
         <div className="flex items-center gap-6">
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3 italic uppercase leading-none">
-            <LayoutDashboard size={24} className="text-blue-600" /> Manager{" "}
+            <LayoutDashboard size={24} className="text-blue-600" /> Matrix{" "}
             <span className="text-blue-600">Hub</span>
           </h2>
           {["matrix", "library", "blueprints"].includes(activeTab) && (
@@ -247,10 +167,12 @@ const AdminMatrixManager = ({
               <div className="h-8 w-px bg-slate-200"></div>
               <button
                 onClick={handleSave}
-                disabled={loading || !hasUnsavedChanges}
+                disabled={
+                  loading || (!hasUnsavedChanges && status.type !== "error")
+                }
                 className={`px-8 py-2.5 rounded-xl transition-all font-black text-sm flex items-center gap-2 shadow-lg uppercase tracking-widest ${
-                  hasUnsavedChanges
-                    ? "bg-slate-900 text-white hover:bg-blue-600 shadow-blue-200"
+                  hasUnsavedChanges || status.type === "error"
+                    ? "bg-slate-900 text-white hover:bg-blue-600"
                     : "bg-slate-100 text-slate-300"
                 }`}
               >
@@ -264,28 +186,19 @@ const AdminMatrixManager = ({
             </>
           )}
         </div>
-        <div className="absolute right-8 flex items-center gap-4">
-          <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`p-2 rounded-xl transition-all ${
-              activeTab === "dashboard"
-                ? "bg-blue-50 text-blue-600 shadow-inner"
-                : "text-slate-300 hover:bg-slate-50"
-            }`}
-          >
-            <LayoutDashboard size={20} />
-          </button>
+
+        <div className="flex items-center gap-4">
           {hasUnsavedChanges && (
-            <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full animate-pulse border border-amber-200 uppercase tracking-widest">
-              Concept Wijzigingen
+            <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200 uppercase tracking-widest animate-pulse italic">
+              Wijzigingen in concept
             </span>
           )}
           {status.msg && (
             <div
               className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase flex items-center gap-2 animate-in fade-in zoom-in ${
                 status.type === "error"
-                  ? "bg-red-50 text-red-600 border border-red-100"
-                  : "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                  ? "bg-rose-50 text-rose-600 border border-rose-100 shadow-sm"
+                  : "bg-emerald-50 text-emerald-600 border border-emerald-100 shadow-sm"
               }`}
             >
               {status.type === "error" ? (
@@ -298,67 +211,65 @@ const AdminMatrixManager = ({
           )}
         </div>
       </div>
-      {activeTab !== "dashboard" && (
-        <div className="flex justify-center bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 w-full overflow-x-auto">
-          <div className="flex gap-4 px-8">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`py-4 px-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? `border-blue-600 text-slate-900 bg-slate-50/50`
-                    : "border-transparent text-slate-400 hover:text-slate-600"
-                }`}
-              >
-                <span className="mr-2 opacity-50">{tab.icon}</span>
-                {tab.label}
-              </button>
-            ))}
-          </div>
+
+      {/* Navigatie Tabs */}
+      <div className="flex justify-center bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 w-full overflow-x-auto no-scrollbar">
+        <div className="flex gap-4 px-8">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`py-4 px-4 text-[10px] font-black uppercase tracking-widest border-b-4 transition-all whitespace-nowrap ${
+                activeTab === tab.id
+                  ? `border-blue-600 text-slate-900 bg-slate-50/50`
+                  : "border-transparent text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              <span className="mr-2 opacity-50">{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
         </div>
-      )}
-      <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar w-full flex justify-center pb-20">
-        {activeTab === "dashboard" ? (
-          <AdminDashboard navigate={handleNavigate} stats={stats} />
-        ) : (
-          <div className="w-full max-w-7xl p-8 animate-in fade-in duration-300">
-            {activeTab === "matrix" && (
-              <MatrixView
-                libraryData={libraryData}
-                matrixData={matrixData}
-                setMatrixData={setMatrixData}
-                setHasUnsavedChanges={setHasUnsavedChanges}
-              />
-            )}
-            {activeTab === "library" && (
-              <LibraryView
-                libraryData={libraryData}
-                setLibraryData={setLibraryData}
-                setHasUnsavedChanges={setHasUnsavedChanges}
-              />
-            )}
-            {activeTab === "blueprints" && (
-              <BlueprintsView
-                blueprints={blueprints}
-                setBlueprints={setBlueprints}
-                libraryData={libraryData}
-                setHasUnsavedChanges={setHasUnsavedChanges}
-              />
-            )}
-            {activeTab === "dimensions" && (
-              <DimensionsView
-                libraryData={libraryData}
-                blueprints={blueprints}
-                productRange={matrixData}
-                db={db}
-                appId={appId}
-              />
-            )}
-            {activeTab === "admin_upload" && <BulkUploadView />}
-            {activeTab === "specs" && <SpecsView blueprints={blueprints} />}
-          </div>
-        )}
+      </div>
+
+      {/* View Switcher */}
+      <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar w-full flex justify-center pb-20 text-left">
+        <div className="w-full max-w-7xl p-8 animate-in fade-in duration-300">
+          {activeTab === "matrix" && (
+            <AvailabilityView
+              libraryData={libraryData}
+              matrixData={matrixData}
+              setMatrixData={setMatrixData}
+              setHasUnsavedChanges={setHasUnsavedChanges}
+            />
+          )}
+          {activeTab === "drilling" && <AdminDrillingView />}
+          {activeTab === "ranges" && <MatrixRangesView />}
+          {activeTab === "library" && (
+            <LibraryView
+              libraryData={libraryData}
+              setLibraryData={setLibraryData}
+              setHasUnsavedChanges={setHasUnsavedChanges}
+            />
+          )}
+          {activeTab === "blueprints" && (
+            <BlueprintsView
+              blueprints={blueprints}
+              setBlueprints={setBlueprints}
+              libraryData={libraryData}
+              setHasUnsavedChanges={setHasUnsavedChanges}
+            />
+          )}
+          {activeTab === "dimensions" && (
+            <DimensionsView
+              libraryData={libraryData}
+              blueprints={blueprints}
+              productRange={matrixData}
+            />
+          )}
+          {activeTab === "admin_upload" && <BulkUploadView />}
+          {activeTab === "specs" && <SpecsView blueprints={blueprints} />}
+        </div>
       </div>
     </div>
   );

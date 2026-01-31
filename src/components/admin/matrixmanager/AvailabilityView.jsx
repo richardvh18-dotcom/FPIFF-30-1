@@ -1,17 +1,10 @@
 import React, { useState } from "react";
-import {
-  Check,
-  Layers,
-  Activity,
-  Hash,
-  LayoutGrid,
-  Info,
-  AlertCircle,
-} from "lucide-react";
+import { Check, Layers, Activity, Hash, Info, AlertCircle } from "lucide-react";
 
 /**
- * AvailabilityView: Beheert de PN vs ID matrix voor elke verbinding.
- * Hier vinkt de Engineer aan welke PN/ID combinaties beschikbaar zijn.
+ * AvailabilityView V6.0 - Matrix Validation Core
+ * Beheert de PN vs ID matrix voor elke verbinding.
+ * Deze data wordt opgeslagen in /future-factory/settings/matrix/main
  */
 const AvailabilityView = ({
   libraryData,
@@ -19,6 +12,7 @@ const AvailabilityView = ({
   setMatrixData,
   setHasUnsavedChanges,
 }) => {
+  // Selecteer standaard de eerste verbinding uit de bibliotheek
   const [selectedConn, setSelectedConn] = useState(
     libraryData?.connections?.[0] || ""
   );
@@ -61,10 +55,11 @@ const AvailabilityView = ({
 
   if (!libraryData?.connections?.length) {
     return (
-      <div className="bg-white p-20 rounded-[40px] border-2 border-dashed border-slate-200 text-center">
+      <div className="bg-white p-20 rounded-[40px] border-2 border-dashed border-slate-200 text-center animate-in fade-in">
         <AlertCircle className="mx-auto text-slate-300 mb-4" size={48} />
         <p className="font-black text-slate-400 uppercase tracking-widest">
-          Vul eerst de Bibliotheek (Moffen) in.
+          Vul eerst de Bibliotheek (Moffen & Diameters) in bij het tabblad
+          Bibliotheek.
         </p>
       </div>
     );
@@ -72,22 +67,22 @@ const AvailabilityView = ({
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 text-left">
-      {/* Verbinding Selectie */}
-      <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex items-center gap-6">
+      {/* Verbinding Selectie Balk */}
+      <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex items-center gap-6 overflow-x-auto no-scrollbar">
         <div className="flex items-center gap-3 shrink-0">
           <div className="p-2.5 bg-orange-50 rounded-2xl text-orange-600 border border-orange-100">
             <Layers size={20} />
           </div>
           <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-            Verbinding:
+            Selectie:
           </span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex gap-2">
           {libraryData.connections.map((conn) => (
             <button
               key={conn}
               onClick={() => setSelectedConn(conn)}
-              className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+              className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap ${
                 selectedConn === conn
                   ? "bg-orange-500 text-white shadow-lg shadow-orange-200"
                   : "bg-slate-50 text-slate-400 hover:bg-slate-100"
@@ -99,13 +94,13 @@ const AvailabilityView = ({
         </div>
       </div>
 
-      {/* Matrix Grid */}
+      {/* De Matrix Grid */}
       <div className="bg-white rounded-[40px] border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-slate-50/50">
-                <th className="p-6 border-b border-r border-slate-100 w-32 sticky left-0 z-20 bg-slate-50">
+                <th className="p-6 border-b border-r border-slate-100 w-32 sticky left-0 z-20 bg-slate-50 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
                   <div className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase italic">
                     <Activity size={14} /> PN \ ID <Hash size={14} />
                   </div>
@@ -125,7 +120,7 @@ const AvailabilityView = ({
             <tbody>
               {pns.map((pn) => (
                 <tr key={pn} className="hover:bg-slate-50/30 transition-colors">
-                  <td className="p-6 border-r border-b border-slate-100 font-black text-slate-600 text-sm sticky left-0 z-10 bg-white">
+                  <td className="p-6 border-r border-b border-slate-100 font-black text-slate-600 text-sm sticky left-0 z-10 bg-white shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
                     PN {pn}
                   </td>
                   {diameters.map((id) => {
@@ -139,7 +134,7 @@ const AvailabilityView = ({
                         <div
                           className={`mx-auto w-10 h-10 rounded-xl flex items-center justify-center transition-all ${
                             checked
-                              ? "bg-emerald-500 text-white shadow-md"
+                              ? "bg-emerald-500 text-white shadow-md scale-105"
                               : "bg-slate-50 text-transparent group-hover:bg-slate-100 group-hover:text-slate-300"
                           }`}
                         >
@@ -154,12 +149,14 @@ const AvailabilityView = ({
           </table>
         </div>
 
-        {/* Footer Info */}
+        {/* Legend / Info Footer */}
         <div className="p-6 bg-slate-50/50 border-t border-slate-100 flex items-center gap-3">
           <Info size={16} className="text-blue-500" />
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-            Vink de PN/ID combinaties aan die technisch produceerbaar zijn voor{" "}
-            {selectedConn}.
+            Klik op een cel om een combinatie te activeren of deactiveren voor{" "}
+            <span className="text-blue-600 font-black">{selectedConn}</span>.
+            Actieve combinaties zijn direct zichtbaar in de Product
+            Configurator.
           </p>
         </div>
       </div>

@@ -12,15 +12,15 @@ import {
 } from "lucide-react";
 
 /**
- * GodModeBootstrap V2.2 - Corrected Target UID
- * Gebruikt nu de UID pFlmcq8IgRNOBxwwV8tS5f8P5BI2
+ * GodModeBootstrap V2.3 - Updated Target UID
+ * Gebruikt nu de UID pzxPfiwQhnQdEQJcXU77ZgT2Jo32
  */
 const GodModeBootstrap = () => {
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
 
-  // GECORRIGEERDE UID UIT JE CONSOLE LOGS
-  const targetUid = "pFlmcq8IgRNOBxwwV8tS5f8P5BI2";
+  // JOUW NIEUWE UID
+  const targetUid = "pzxPfiwQhnQdEQJcXU77ZgT2Jo32";
 
   const handleBootstrap = async () => {
     setStatus("loading");
@@ -67,7 +67,7 @@ const GodModeBootstrap = () => {
               System <span className="text-blue-500">Restore</span>
             </h2>
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-2">
-              Gecorrigeerde UID Activatie
+              Nieuwe UID Activatie
             </p>
           </div>
         </div>
@@ -76,7 +76,7 @@ const GodModeBootstrap = () => {
           <div className="flex items-center gap-2 text-blue-400 mb-2">
             <Database size={14} />
             <span className="text-[10px] font-black uppercase tracking-widest">
-              Doel UID:
+              Actief UID:
             </span>
           </div>
           <code className="text-[11px] font-mono text-emerald-400 break-all bg-black/40 p-4 rounded-xl block border border-white/5 text-center">
@@ -89,16 +89,16 @@ const GodModeBootstrap = () => {
             <CheckCircle2 size={40} />
             <div className="text-left">
               <p className="font-black uppercase text-sm italic">
-                Activatie Voltooid!
+                God Mode Actief!
               </p>
               <p className="text-[10px] opacity-80 mt-1">
-                Je bent nu geregistreerd in de nieuwe database.
+                Je bent nu als Master Admin geregistreerd.
               </p>
               <button
                 onClick={() => (window.location.href = "/")}
                 className="mt-6 flex items-center gap-2 bg-emerald-500 text-slate-900 px-6 py-2.5 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-emerald-400"
               >
-                Ga naar Portal <ArrowRight size={14} />
+                Naar de Portal <ArrowRight size={14} />
               </button>
             </div>
           </div>
@@ -112,7 +112,7 @@ const GodModeBootstrap = () => {
               <Loader2 className="animate-spin" />
             ) : (
               <>
-                Database Schrijven <Zap size={20} />
+                Database Herstellen <Zap size={20} />
               </>
             )}
           </button>

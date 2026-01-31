@@ -10,8 +10,8 @@ import {
 } from "lucide-react";
 
 /**
- * LoginView V4.0 - Clean Version
- * Verwijdert alle zware extra imports die crashes kunnen veroorzaken.
+ * LoginView V3.5 - Stabilized
+ * Zorgt ervoor dat inlogpogingen correct worden doorgegeven aan Firebase.
  */
 const LoginView = ({ onLogin, error: externalError }) => {
   const [email, setEmail] = useState("");
@@ -21,12 +21,17 @@ const LoginView = ({ onLogin, error: externalError }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!email || !password) return;
+
     setLoading(true);
     setInternalError(null);
+    console.log("🚀 Inlogpoging gestart voor:", email);
+
     try {
       await onLogin(email, password);
     } catch (err) {
-      setInternalError("Netwerkfout bij inloggen.");
+      console.error("❌ Login Component Fout:", err);
+      setInternalError("Systeemfout bij inloggen.");
     } finally {
       setLoading(false);
     }
@@ -35,7 +40,7 @@ const LoginView = ({ onLogin, error: externalError }) => {
   const displayError = externalError || internalError;
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans text-left">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 text-left">
       <div className="max-w-md w-full bg-white rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-500">
         <div className="bg-slate-900 p-10 text-center relative border-b-4 border-blue-600">
           <Factory className="text-blue-500 w-12 h-12 mx-auto mb-4" />
@@ -68,9 +73,10 @@ const LoginView = ({ onLogin, error: externalError }) => {
                 <input
                   type="email"
                   required
+                  autoComplete="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all text-sm"
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all text-sm text-slate-900"
                   placeholder="naam@futurepipe.com"
                 />
               </div>
@@ -88,9 +94,10 @@ const LoginView = ({ onLogin, error: externalError }) => {
                 <input
                   type="password"
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all text-sm"
+                  className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-blue-500 transition-all text-sm text-slate-900"
                   placeholder="••••••••"
                 />
               </div>

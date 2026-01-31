@@ -1,370 +1,377 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Users,
-  UserPlus,
   Search,
   Loader2,
-  AlertTriangle,
-  Globe,
-  ChevronRight,
-  X,
+  ShieldCheck,
   Trash2,
+  Mail,
   Edit3,
+  X,
   Save,
   UserCircle,
-  DatabaseZap,
   ShieldAlert,
-  Fingerprint,
-  RefreshCw,
-  Lock,
-  SearchCode,
+  ChevronRight,
   Database,
-  FileSearch,
-  Map,
+  Fingerprint,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { db, auth } from "../../config/firebase";
 import {
   collection,
-  query,
   onSnapshot,
+  query,
+  orderBy,
   doc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
-  getDocs,
-  collectionGroup,
 } from "firebase/firestore";
+import { PATHS, isValidPath } from "../../config/dbPaths";
 
 /**
- * AdminUsersView V20 - Path Discovery Edition
- * Bevat tools om te achterhalen waar de data exact staat als het standaard pad leeg blijft.
+ * AdminUsersView V5.0 - Identity Management Root Sync
+ * Beheert alle toegangsrechten en profielen in de root-omgeving.
+ * Pad: /future-factory/Users/Accounts/
  */
 const AdminUsersView = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [isEditMode, setIsEditMode] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState(null);
 
-  // Debug State
-  const [debugInfo, setDebugInfo] = useState({
-    lastRawCount: 0,
-    authStatus: "checking",
-    fullPath: "",
-    errorCode: null,
-    discoveryLog: [],
-  });
+  const USER_ROLES = [
+    { id: "admin", label: "Master Admin", color: "bg-blue-600" },
+    { id: "engineer", label: "Process Engineer", color: "bg-purple-600" },
+    { id: "teamleader", label: "Teamleider", color: "bg-emerald-600" },
+    { id: "operator", label: "Machine Operator", color: "bg-orange-600" },
+    { id: "guest", label: "Geen Toegang (Guest)", color: "bg-slate-400" },
+  ];
 
-  const appId = typeof __app_id !== "undefined" ? __app_id : "fittings-app-v1";
-  const targetPath = `artifacts/${appId}/public/data/user_roles`;
-
-  const addDiscoveryLog = (msg) => {
-    setDebugInfo((prev) => ({
-      ...prev,
-      discoveryLog: [
-        `[${new Date().toLocaleTimeString()}] ${msg}`,
-        ...prev.discoveryLog,
-      ].slice(0, 5),
-    }));
-  };
-
-  // 1. STANDAARD DATA FETCH
+  // 1. Live Sync met de Root Accounts collectie
   useEffect(() => {
+    if (!isValidPath("USERS")) return;
+
     setLoading(true);
-    setError(null);
-
-    const currentUser = auth.currentUser;
-    setDebugInfo((prev) => ({
-      ...prev,
-      authStatus: currentUser
-        ? `Ingelogd (${currentUser.uid})`
-        : "Niet ingelogd",
-      fullPath: targetPath,
-    }));
-
-    const usersRef = collection(
-      db,
-      "artifacts",
-      appId,
-      "public",
-      "data",
-      "user_roles"
-    );
-    const q = query(usersRef);
+    const usersRef = collection(db, ...PATHS.USERS);
+    const q = query(usersRef, orderBy("name", "asc"));
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const usersList = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setUsers(usersList);
-        setDebugInfo((prev) => ({
-          ...prev,
-          lastRawCount: snapshot.size,
-          errorCode: null,
-        }));
+        setUsers(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
         setLoading(false);
-        if (snapshot.size > 0)
-          addDiscoveryLog(`Succes! ${snapshot.size} users geladen.`);
       },
       (err) => {
-        setError(`Database fout: ${err.code}. Check je Firestore Rules.`);
-        setDebugInfo((prev) => ({ ...prev, errorCode: err.code }));
+        console.error("Firestore Identity Error:", err);
         setLoading(false);
       }
     );
 
     return () => unsubscribe();
-  }, [appId, targetPath]);
+  }, []);
 
-  // 2. DISCOVERY TOOL: Zoek waar de data wél staat
-  const runPathDiscovery = async () => {
-    addDiscoveryLog("Start pad-verkenning...");
-    const variations = [
-      {
-        name: "Standaard",
-        path: ["artifacts", appId, "public", "data", "user_roles"],
-      },
-      {
-        name: "Zonder 'data'",
-        path: ["artifacts", appId, "public", "user_roles"],
-      },
-      { name: "Direct onder AppID", path: ["artifacts", appId, "user_roles"] },
-      { name: "Root level users", path: ["user_roles"] },
-    ];
-
-    for (const variant of variations) {
-      try {
-        addDiscoveryLog(`Checken: ${variant.name}...`);
-        const ref = collection(db, ...variant.path);
-        const snap = await getDocs(ref);
-        if (snap.size > 0) {
-          addDiscoveryLog(`🔥 GEVONDEN! ${snap.size} items in ${variant.name}`);
-          const found = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setUsers(found);
-          setDebugInfo((prev) => ({
-            ...prev,
-            lastRawCount: snap.size,
-            fullPath: variant.path.join("/"),
-          }));
-          return;
-        }
-      } catch (e) {
-        console.warn(`Pad ${variant.name} mislukt.`);
-      }
-    }
-    addDiscoveryLog("Geen data gevonden in bekende variaties.");
-  };
-
+  // 2. Client-side Filtering
   const filteredUsers = useMemo(() => {
     return users.filter(
       (u) =>
-        (u.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.email || "").toLowerCase().includes(searchTerm.toLowerCase())
+        u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.role?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [users, searchTerm]);
 
+  // 3. Handlers
+  const handleEdit = (user) => {
+    setSelectedUser({ ...user });
+    setIsEditing(true);
+  };
+
+  const handleUpdateUser = async () => {
+    if (!selectedUser || saving) return;
+    setSaving(true);
+    try {
+      const userRef = doc(db, ...PATHS.USERS, selectedUser.id);
+      await updateDoc(userRef, {
+        name: selectedUser.name,
+        role: selectedUser.role,
+        lastAdminUpdate: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || "Master Admin",
+      });
+
+      setStatus({ type: "success", msg: "Gebruikersprofiel bijgewerkt" });
+      setTimeout(() => setStatus(null), 3000);
+      setIsEditing(false);
+    } catch (err) {
+      alert("Update mislukt: " + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (userId) => {
+    if (
+      !window.confirm(
+        "Account permanent verwijderen uit de root? Dit blokkeert direct alle toegang."
+      )
+    )
+      return;
+    try {
+      const userRef = doc(db, ...PATHS.USERS, userId);
+      await deleteDoc(userRef);
+      setStatus({ type: "success", msg: "Gebruiker verwijderd" });
+      setTimeout(() => setStatus(null), 3000);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   if (loading)
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-slate-50 gap-4">
-        <Loader2 className="animate-spin text-blue-500" size={40} />
+      <div className="h-full flex flex-col items-center justify-center bg-slate-50 gap-4">
+        <Loader2 className="animate-spin text-blue-600" size={48} />
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 italic">
-          Verbinding maken met Firestore...
+          Identiteiten synchroniseren...
         </p>
       </div>
     );
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in text-left bg-slate-50 overflow-hidden relative">
-      {/* TOOLBAR */}
-      <div className="p-6 bg-white border-b border-slate-200 flex flex-col lg:flex-row justify-between items-center gap-4 shrink-0">
-        <div className="flex items-center gap-4 w-full lg:w-auto">
-          <h2 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter leading-none text-left">
-            Systeem <span className="text-blue-600">Autorisatie</span>
-          </h2>
-          <div className="relative flex-1 sm:w-64">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"
-              size={16}
-            />
-            <input
-              type="text"
-              placeholder="Zoek op naam of mail..."
-              className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500/10 text-xs font-bold"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+    <div className="flex flex-col h-full bg-slate-50 text-left animate-in fade-in overflow-hidden">
+      {/* HEADER UNIT */}
+      <div className="p-8 bg-white border-b border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6 shrink-0 z-10">
+        <div className="flex items-center gap-6">
+          <div className="p-4 bg-slate-900 text-white rounded-[20px] shadow-xl">
+            <Users size={28} />
           </div>
-          <button
-            onClick={runPathDiscovery}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-lg active:scale-95"
-            title="Zoek data in andere mappen"
-          >
-            <FileSearch size={18} />
-            <span className="text-[10px] font-black uppercase">
-              Pad Verkenner
-            </span>
-          </button>
+          <div className="text-left">
+            <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
+              Access <span className="text-blue-600">Controller</span>
+            </h2>
+            <div className="mt-3 flex items-center gap-3">
+              <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 uppercase italic">
+                <ShieldCheck size={10} /> Root Protected
+              </span>
+              <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
+                Node: /{PATHS.USERS.join("/")}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-slate-900 rounded-xl border border-white/10 shadow-lg">
-            <DatabaseZap
-              size={14}
-              className={
-                users.length > 0 ? "text-emerald-400" : "text-amber-500"
-              }
-            />
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-              {users.length} Database entries
-            </span>
-          </div>
+        <div className="relative w-full md:w-80 group">
+          <Search
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500 transition-colors"
+            size={18}
+          />
+          <input
+            type="text"
+            className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-sm font-bold outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+            placeholder="Zoek op naam, mail of rol..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
       </div>
 
-      {error && (
-        <div className="mx-6 mt-6 p-4 bg-red-50 border-2 border-red-100 rounded-2xl flex items-center gap-4 text-red-600 animate-in shake">
-          <AlertTriangle size={24} />
-          <div className="text-left">
-            <p className="text-xs font-black uppercase tracking-widest">
-              Toegang Geweigerd
-            </p>
-            <p className="text-[10px] font-bold opacity-80 mt-0.5">{error}</p>
+      {/* CONTENT GRID */}
+      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/50">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {filteredUsers.length === 0 ? (
+            <div className="py-32 text-center bg-white rounded-[45px] border-2 border-dashed border-slate-200 opacity-50 flex flex-col items-center">
+              <Users size={64} className="text-slate-200 mb-4" />
+              <p className="text-sm font-black uppercase tracking-widest text-slate-400">
+                Geen geautoriseerde accounts gevonden
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {filteredUsers.map((u) => (
+                <div
+                  key={u.id}
+                  className="bg-white p-7 rounded-[40px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-400 transition-all group flex flex-col justify-between relative overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 p-6 opacity-5 rotate-12 group-hover:opacity-10 transition-opacity">
+                    <Database size={100} />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-4 mb-8">
+                      <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
+                        <Fingerprint size={28} />
+                      </div>
+                      <div className="text-left overflow-hidden">
+                        <h4 className="font-black text-slate-900 uppercase italic truncate text-lg leading-none mb-1.5">
+                          {u.name || "Identiteit Onbekend"}
+                        </h4>
+                        <span
+                          className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white shadow-sm ${
+                            USER_ROLES.find((r) => r.id === u.role)?.color ||
+                            "bg-slate-400"
+                          }`}
+                        >
+                          {USER_ROLES.find((r) => r.id === u.role)?.label ||
+                            u.role}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 border-t border-slate-50 pt-6">
+                      <div className="flex items-center gap-3 text-xs font-bold text-slate-500">
+                        <Mail size={14} className="text-blue-500" /> {u.email}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[8px] font-mono text-slate-300 uppercase bg-slate-50 px-2 py-1 rounded-md border border-slate-100">
+                          UID: {u.id}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8 pt-6 border-t border-slate-50 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                      onClick={() => handleEdit(u)}
+                      className="p-3 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                      title="Bewerken"
+                    >
+                      <Edit3 size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(u.id)}
+                      className="p-3 bg-slate-50 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                      title="Account Verwijderen"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* EDIT MODAL OVERLAY */}
+      {isEditing && selectedUser && (
+        <div className="fixed inset-0 z-[1000] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-xl rounded-[50px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10">
+            <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-5">
+                <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-xl">
+                  <ShieldAlert size={28} />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">
+                    Rechten <span className="text-blue-600">Beheren</span>
+                  </h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5 italic">
+                    Identity Sync: {selectedUser.id.substring(0, 8)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="p-3 hover:bg-slate-200 text-slate-300 rounded-2xl transition-all"
+              >
+                <X size={28} />
+              </button>
+            </div>
+
+            <div className="p-10 space-y-8 text-left">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
+                  Volledige Naam
+                </label>
+                <div className="relative group">
+                  <UserCircle
+                    className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-blue-500"
+                    size={20}
+                  />
+                  <input
+                    className="w-full pl-14 pr-6 py-5 bg-slate-50 border-2 border-slate-100 rounded-[25px] font-black text-slate-800 outline-none focus:border-blue-500 focus:bg-white transition-all shadow-inner"
+                    value={selectedUser.name || ""}
+                    onChange={(e) =>
+                      setSelectedUser({ ...selectedUser, name: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
+                  Systeem Rol & Toegang
+                </label>
+                <div className="grid grid-cols-1 gap-3">
+                  {USER_ROLES.map((role) => (
+                    <button
+                      key={role.id}
+                      onClick={() =>
+                        setSelectedUser({ ...selectedUser, role: role.id })
+                      }
+                      className={`p-5 rounded-[25px] border-2 transition-all flex items-center justify-between group ${
+                        selectedUser.role === role.id
+                          ? "bg-blue-50 border-blue-500 shadow-md ring-4 ring-blue-500/5"
+                          : "bg-white border-slate-100 hover:border-blue-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          className={`w-3 h-3 rounded-full ${role.color} ${
+                            selectedUser.role === role.id
+                              ? "animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.6)]"
+                              : "opacity-40"
+                          }`}
+                        ></div>
+                        <span
+                          className={`font-black uppercase tracking-widest text-[11px] ${
+                            selectedUser.role === role.id
+                              ? "text-blue-700"
+                              : "text-slate-400"
+                          }`}
+                        >
+                          {role.label}
+                        </span>
+                      </div>
+                      {selectedUser.role === role.id && (
+                        <CheckCircle2 size={18} className="text-blue-500" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={handleUpdateUser}
+                disabled={saving}
+                className="w-full py-7 bg-slate-900 text-white rounded-[30px] font-black uppercase text-sm tracking-[0.3em] shadow-2xl hover:bg-blue-600 transition-all flex items-center justify-center gap-4 active:scale-95 disabled:opacity-50 mt-6"
+              >
+                {saving ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Save size={24} />
+                )}
+                Publiceren naar Root Node
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* CONTENT GRID */}
-      <div className="flex-1 overflow-auto p-8 custom-scrollbar">
-        {filteredUsers.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center opacity-40 py-20">
-            <div className="p-10 bg-white rounded-[50px] border-2 border-dashed border-slate-200 text-center space-y-6">
-              <Users size={64} className="mx-auto text-slate-200" />
-              <div>
-                <p className="text-sm font-black uppercase italic text-slate-800">
-                  Geen data geladen
-                </p>
-                <p className="text-[10px] font-medium text-slate-400 mt-2 leading-relaxed">
-                  De lijst is leeg. Klik op <b>'Pad Verkenner'</b> hierboven om
-                  te scannen
-                  <br />
-                  of er data op een ander niveau in Firestore staat.
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredUsers.map((user) => (
-              <div
-                key={user.id}
-                onClick={() => {
-                  setSelectedUser(user);
-                  setIsEditMode(true);
-                }}
-                className="bg-white p-6 rounded-[35px] border-2 border-slate-100 transition-all cursor-pointer hover:border-blue-400 hover:shadow-2xl group text-left"
-              >
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="p-3 bg-slate-900 text-white rounded-2xl group-hover:scale-110 transition-transform">
-                    <UserCircle size={24} />
-                  </div>
-                  <div className="overflow-hidden text-left">
-                    <h3 className="font-black text-slate-900 truncate text-sm uppercase italic leading-none">
-                      {user.name || "Onbekend"}
-                    </h3>
-                    <p className="text-[9px] font-bold text-blue-500 uppercase tracking-widest mt-1">
-                      {user.role || "Geen rol"}
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-1.5 opacity-60 text-left">
-                  <p className="text-[10px] font-bold text-slate-500 truncate">
-                    {user.email}
-                  </p>
-                  <p className="text-[8px] font-mono text-slate-400 truncate uppercase">
-                    UID: {user.id}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* --- FLOATING DEBUG PANEL --- */}
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[300] w-full max-w-4xl px-4">
-        <div className="bg-slate-900 text-white rounded-[32px] border border-white/10 shadow-2xl p-5 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-white/5 pb-3">
-            <div className="flex items-center gap-2">
-              <ShieldAlert size={14} className="text-blue-400" />
-              <span className="text-[10px] font-black uppercase tracking-widest">
-                Identity & Path Explorer v20
-              </span>
-            </div>
-            <div className="flex gap-4">
-              <div className="flex items-center gap-1.5">
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    debugInfo.errorCode ? "bg-red-500" : "bg-emerald-500"
-                  }`}
-                ></div>
-                <span className="text-[9px] font-bold text-slate-400 uppercase">
-                  Firestore
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Fingerprint size={10} className="text-slate-500" />
-                <span className="text-[9px] font-bold text-slate-400 uppercase">
-                  {debugInfo.authStatus}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-            <div className="space-y-3">
-              <div>
-                <p className="text-[8px] font-black text-slate-500 uppercase mb-1 flex items-center gap-1">
-                  <Map size={10} /> Actief Target Pad:
-                </p>
-                <code className="text-[10px] font-mono text-blue-300 break-all bg-black/40 p-2 rounded-lg block border border-white/5">
-                  {debugInfo.fullPath}
-                </code>
-              </div>
-              <div className="flex items-center justify-between bg-black/20 p-3 rounded-xl border border-white/5">
-                <span className="text-[9px] font-black text-slate-500 uppercase">
-                  Gevonden Documenten:
-                </span>
-                <span className="text-xs font-black text-emerald-400">
-                  {debugInfo.lastRawCount}
-                </span>
-              </div>
-            </div>
-
-            <div className="md:border-l md:border-white/5 md:pl-6">
-              <p className="text-[8px] font-black text-slate-500 uppercase mb-2 flex items-center gap-1">
-                <SearchCode size={10} /> Discovery Log:
-              </p>
-              <div className="bg-black/40 rounded-xl p-3 h-24 overflow-y-auto custom-scrollbar space-y-1">
-                {debugInfo.discoveryLog.length === 0 && (
-                  <p className="text-[9px] text-slate-600 italic">
-                    Geen logs...
-                  </p>
-                )}
-                {debugInfo.discoveryLog.map((log, i) => (
-                  <p
-                    key={i}
-                    className="text-[9px] font-mono text-blue-200/70 border-b border-white/5 pb-1 last:border-0"
-                  >
-                    {log}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
+      {/* FOOTER INFO */}
+      <div className="p-4 bg-slate-950 border-t border-white/5 flex justify-between items-center text-[10px] font-black text-slate-600 uppercase tracking-[0.4em] px-10 shrink-0">
+        <div className="flex items-center gap-6">
+          <span className="flex items-center gap-2 text-emerald-500/50">
+            <ShieldCheck size={14} /> Forensic Audit Active
+          </span>
+          <span className="flex items-center gap-2">
+            <Database size={14} /> Central Identity Vault
+          </span>
         </div>
+        <span className="opacity-30 italic">User Management v6.11</span>
       </div>
     </div>
   );

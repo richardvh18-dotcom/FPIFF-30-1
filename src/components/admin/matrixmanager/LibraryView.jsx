@@ -1,148 +1,155 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Layers,
-  Package,
-  Tag,
-  Database,
-  Activity,
   Hash,
-  RotateCw,
+  Ruler,
+  Type,
   Target,
+  Zap,
+  Database,
+  Info,
+  Settings2,
+  Activity,
 } from "lucide-react";
 import LibrarySection from "./LibrarySection";
 
 /**
- * LibraryView: Beheert de dropdown-opties in de database.
- * UPDATE: 'Bore Dimensions' categorie toegevoegd voor centraal beheer van boringen.
+ * LibraryView V4.0 - Root-Ready
+ * Beheert de configuratie-arrays die worden opgeslagen in GENERAL_SETTINGS.
+ * Deze component koppelt de UI (LibrarySection) aan de centrale state.
  */
 const LibraryView = ({ libraryData, setLibraryData, setHasUnsavedChanges }) => {
-  const addToLibrary = (key, value) => {
-    if (!value || !value.toString().trim()) return;
-    let newValue = value.toString().trim();
-
-    // PN, Diameters en Graden opslaan als getallen indien mogelijk
-    if (key === "pns" || key === "diameters" || key === "angles") {
-      const num = Number(newValue);
-      if (!isNaN(num)) newValue = num;
-    }
-
+  // Helper om een item toe te voegen aan een specifieke lijst in de state
+  const addItem = (key, val) => {
     setLibraryData((prev) => {
-      const currentList = Array.isArray(prev[key]) ? prev[key] : [];
-      if (currentList.includes(newValue)) return prev;
+      const list = Array.isArray(prev[key]) ? [...prev[key]] : [];
+      if (list.includes(val)) return prev; // Voorkom dubbele
 
-      const updatedList = [...currentList, newValue];
-
-      // Sortering (nummers vs tekst)
-      if (key === "pns" || key === "diameters" || key === "angles") {
-        updatedList.sort((a, b) => a - b);
-      } else {
-        updatedList.sort();
-      }
-
-      return { ...prev, [key]: updatedList };
-    });
-
-    if (setHasUnsavedChanges) setHasUnsavedChanges(true);
-  };
-
-  const removeFromLibrary = (key, value) => {
-    setLibraryData((prev) => {
-      const currentList = Array.isArray(prev[key]) ? prev[key] : [];
-      return {
+      const updated = {
         ...prev,
-        [key]: currentList.filter((i) => i !== value),
+        [key]: [...list, val].sort((a, b) => {
+          // Slim sorteren: nummers numeriek, tekst alfabetisch
+          if (!isNaN(a) && !isNaN(b)) return Number(a) - Number(b);
+          return String(a).localeCompare(String(b));
+        }),
       };
+      return updated;
     });
-
     if (setHasUnsavedChanges) setHasUnsavedChanges(true);
   };
 
-  // VEILIGE DATA MAPPING
-  const data = {
-    connections: libraryData?.connections || [],
-    product_names: libraryData?.product_names || [],
-    labels: libraryData?.labels || [],
-    extraCodes: libraryData?.extraCodes || [],
-    pns: libraryData?.pns || [],
-    diameters: libraryData?.diameters || [],
-    angles: libraryData?.angles || [],
-    borings: libraryData?.borings || libraryData?.extraCodes || [], // Mapping voor boringen
+  // Helper om een item te verwijderen
+  const removeItem = (key, val) => {
+    setLibraryData((prev) => ({
+      ...prev,
+      [key]: (prev[key] || []).filter((i) => i !== val),
+    }));
+    if (setHasUnsavedChanges) setHasUnsavedChanges(true);
   };
+
+  // Configuraties voor de verschillende bibliotheek-secties
+  const SECTIONS = [
+    {
+      id: "connections",
+      title: "Mof Verbindingen",
+      icon: <Layers size={18} />,
+      placeholder: "Bijv. CB/CB...",
+      key: "connections",
+    },
+    {
+      id: "diameters",
+      title: "Diameters (ID)",
+      icon: <Hash size={18} />,
+      placeholder: "Bijv. 350...",
+      key: "diameters",
+    },
+    {
+      id: "pns",
+      title: "Drukklassen (PN)",
+      icon: <Activity size={18} />,
+      placeholder: "Bijv. 16...",
+      key: "pns",
+    },
+    {
+      id: "product_names",
+      title: "Product Types",
+      icon: <Type size={18} />,
+      placeholder: "Bijv. Elbow...",
+      key: "product_names",
+    },
+    {
+      id: "borings",
+      title: "Boring Types",
+      icon: <Target size={18} />,
+      placeholder: "Bijv. DIN 10...",
+      key: "borings",
+    },
+    {
+      id: "codes",
+      title: "Extra Codes",
+      icon: <Zap size={18} />,
+      placeholder: "Bijv. A1S1...",
+      key: "codes",
+    },
+  ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-in fade-in slide-in-from-bottom-4 text-left pb-20">
-      <LibrarySection
-        title="Moffen & Verbindingen"
-        items={data.connections}
-        onAdd={(v) => addToLibrary("connections", v)}
-        onRemove={(v) => removeFromLibrary("connections", v)}
-        placeholder="Bijv. CB, TB..."
-        icon={<Layers size={18} className="text-blue-500" />}
-      />
+    <div className="space-y-8 animate-in fade-in duration-500 text-left">
+      {/* Introductie Paneel */}
+      <div className="bg-blue-600 p-8 rounded-[40px] text-white shadow-xl shadow-blue-200 relative overflow-hidden flex flex-col md:flex-row items-center gap-8">
+        <div className="absolute top-0 right-0 p-8 opacity-10 rotate-12">
+          <Database size={150} />
+        </div>
+        <div className="p-4 bg-white/10 rounded-3xl backdrop-blur-md border border-white/20 shrink-0">
+          <Settings2 size={40} className="text-white" />
+        </div>
+        <div className="relative z-10">
+          <h2 className="text-2xl font-black uppercase italic tracking-tighter mb-2">
+            Master Bibliotheek
+          </h2>
+          <p className="text-sm font-bold text-blue-100/80 leading-relaxed max-w-2xl">
+            Beheer hier de kern-parameters van de fabriek. Deze waarden vormen
+            de basis voor de Matrix, de Product Configurator en de Werkstation
+            Terminals.
+          </p>
+        </div>
+      </div>
 
-      <LibrarySection
-        title="Product Categorieën"
-        items={data.product_names}
-        onAdd={(v) => addToLibrary("product_names", v)}
-        onRemove={(v) => removeFromLibrary("product_names", v)}
-        placeholder="Bijv. Elbow, Tee..."
-        icon={<Package size={18} className="text-purple-500" />}
-      />
+      {/* Grid van Secties */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {SECTIONS.map((sec) => (
+          <LibrarySection
+            key={sec.id}
+            title={sec.title}
+            icon={sec.icon}
+            placeholder={sec.placeholder}
+            items={libraryData[sec.key] || []}
+            onAdd={(val) => addItem(sec.key, val)}
+            onRemove={(val) => removeItem(sec.key, val)}
+          />
+        ))}
+      </div>
 
-      <LibrarySection
-        title="Labels"
-        items={data.labels}
-        onAdd={(v) => addToLibrary("labels", v)}
-        onRemove={(v) => removeFromLibrary("labels", v)}
-        placeholder="Bijv. Potable, WRAS..."
-        icon={<Tag size={18} className="text-orange-500" />}
-      />
-
-      <LibrarySection
-        title="Graden (Hoeken)"
-        items={data.angles}
-        onAdd={(v) => addToLibrary("angles", v)}
-        onRemove={(v) => removeFromLibrary("angles", v)}
-        placeholder="Bijv. 45, 90..."
-        icon={<RotateCw size={18} className="text-amber-500" />}
-      />
-
-      {/* NIEUW: BORE DIMENSIONS CATEGORIE */}
-      <LibrarySection
-        title="Bore Dimensions (Boring)"
-        items={data.borings}
-        onAdd={(v) => addToLibrary("borings", v)}
-        onRemove={(v) => removeFromLibrary("borings", v)}
-        placeholder="Bijv. DIN PN10, ANSI 150..."
-        icon={<Target size={18} className="text-indigo-500" />}
-      />
-
-      <LibrarySection
-        title="Drukklassen (PN)"
-        items={data.pns}
-        onAdd={(v) => addToLibrary("pns", v)}
-        onRemove={(v) => removeFromLibrary("pns", v)}
-        placeholder="Bijv. 10, 16..."
-        icon={<Activity size={18} className="text-red-500" />}
-      />
-
-      <LibrarySection
-        title="Diameters (ID)"
-        items={data.diameters}
-        onAdd={(v) => addToLibrary("diameters", v)}
-        onRemove={(v) => removeFromLibrary("diameters", v)}
-        placeholder="Bijv. 80, 100..."
-        icon={<Hash size={18} className="text-cyan-500" />}
-      />
-
-      <LibrarySection
-        title="Extra Codes"
-        items={data.extraCodes}
-        onAdd={(v) => addToLibrary("extraCodes", v)}
-        onRemove={(v) => removeFromLibrary("extraCodes", v)}
-        placeholder="Bijv. SDR11..."
-        icon={<Database size={18} className="text-emerald-500" />}
-      />
+      {/* Informatieve Footer */}
+      <div className="p-8 bg-slate-900 rounded-[40px] border border-white/5 flex items-start gap-6 shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-6 opacity-5">
+          <Info size={80} />
+        </div>
+        <div className="p-3 bg-blue-600 rounded-2xl text-white shadow-lg shrink-0">
+          <Info size={20} />
+        </div>
+        <div className="text-left space-y-2 relative z-10">
+          <h4 className="text-xs font-black uppercase text-blue-400 tracking-widest italic leading-none">
+            Instructies
+          </h4>
+          <p className="text-[11px] text-slate-400 font-bold uppercase leading-relaxed tracking-wider opacity-80">
+            Wijzigingen in de bibliotheek zijn direct merkbaar in de filters van
+            de andere tabs. Vergeet niet bovenaan op <strong>"Opslaan"</strong>{" "}
+            te klikken om de wijzigingen definitief te maken in de root
+            database.
+          </p>
+        </div>
+      </div>
     </div>
   );
 };
