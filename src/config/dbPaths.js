@@ -41,4 +41,25 @@ export const PATHS = {
   AI_KNOWLEDGE_BASE: [BASE, "settings", "ai_knowledge_base", "records"],
 };
 
-export const isValidPath = (key) => !!(PATHS[key] && Array.isArray(PATHS[key]));
+/**
+ * isValidPath - Controleert of een pad-sleutel geldig is
+ */
+export const isValidPath = (key) => {
+  return key in PATHS;
+};
+
+/**
+ * getPath - Veilige helper om een pad op te vragen met foutcontrole.
+ */
+export const getPath = (key) => {
+  if (!PATHS[key]) {
+    console.error(
+      `❌ DATABASE PAD FOUT: Sleutel '${key}' niet gevonden in dbPaths.js`
+    );
+    return ["future-factory", "production", "error_fallback"];
+  }
+  return PATHS[key];
+};
+
+export const getPathString = (pathArray) =>
+  Array.isArray(pathArray) ? pathArray.join("/") : "";
