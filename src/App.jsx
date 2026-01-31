@@ -1,12 +1,6 @@
 import React, { useState, Suspense, lazy, useEffect } from "react";
 import { Loader2, AlertTriangle } from "lucide-react";
-import {
-  Routes,
-  Route,
-  Navigate,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "./config/firebase";
 
@@ -24,8 +18,11 @@ import { useProductsData } from "./hooks/useProductsData";
 import { useSettingsData } from "./hooks/useSettingsData";
 import { useMessages } from "./hooks/useMessages";
 
-// Lazy Loading Modules (Modules die crashes kunnen veroorzaken pakken we apart in)
+// Lazy Loading Modules
 const AdminDashboard = lazy(() => import("./components/admin/AdminDashboard"));
+const AdminMessagesView = lazy(() =>
+  import("./components/admin/AdminMessagesView")
+); // NIEUW: Directe import voor route
 const DigitalPlanningHub = lazy(() =>
   import("./components/digitalplanning/DigitalPlanningHub")
 );
@@ -36,8 +33,8 @@ const CalculatorView = lazy(() => import("./components/CalculatorView"));
 const AiAssistantView = lazy(() => import("./components/AiAssistantView"));
 
 /**
- * App.jsx V14.0 - White Screen Recovery
- * Herstelt de basis-routing en zorgt dat de LoginView altijd laadt bij gebrek aan sessie.
+ * App.jsx V16.0 - Messaging Route Fix
+ * Voegt de ontbrekende route voor /messages toe zodat de Sidebar link werkt.
  */
 const App = () => {
   const navigate = useNavigate();
@@ -46,7 +43,7 @@ const App = () => {
 
   // Data fetching via Hooks
   const { user, isAdmin, role, loading: authLoading } = useAdminAuth();
-  const { products = [] } = useProductsData();
+  const { products = [] } = useProductsData(user);
   const { generalConfig } = useSettingsData(user);
   const { messages = [] } = useMessages(user);
 
@@ -60,29 +57,25 @@ const App = () => {
       await signInWithEmailAndPassword(auth, email, password);
       navigate("/");
     } catch (err) {
-      console.error("Login Error:", err.code);
       setLoginError("E-mail of wachtwoord onjuist.");
     }
   };
 
-  // 1. LAADSCHERM (Voorkomt wit scherm tijdens check)
   if (authLoading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-slate-950">
         <Loader2 className="animate-spin text-blue-400" size={48} />
         <p className="text-white font-black uppercase tracking-[0.3em] text-[10px] mt-4 italic">
-          FPi Identity Guard...
+          Identiteit controleren...
         </p>
       </div>
     );
   }
 
-  // 2. LOGIN SCHERM (Als er geen gebruiker is of als het een guest is)
   if (!user || role === "guest") {
     return <LoginView onLogin={handleLogin} error={loginError} />;
   }
 
-  // 3. DE WERKELIJKE APP (Na succesvol inloggen)
   return (
     <div className="flex flex-col h-screen bg-slate-50 font-sans overflow-hidden text-left relative">
       <Header
@@ -98,13 +91,13 @@ const App = () => {
         <Sidebar
           user={user}
           isAdmin={isAdmin}
-          onLogout={() => {
-            signOut(auth);
+          onLogout={async () => {
+            await signOut(auth);
             navigate("/login");
           }}
         />
 
-        <main className="flex-1 flex flex-col overflow-hidden relative transition-all duration-300">
+        <main className="flex-1 flex flex-col overflow-hidden relative md:pl-16">
           <Suspense
             fallback={
               <div className="flex-1 flex items-center justify-center bg-white">
@@ -124,6 +117,13 @@ const App = () => {
               <Route path="/scanner" element={<MobileScanner />} />
               <Route path="/calculator" element={<CalculatorView />} />
               <Route path="/assistant" element={<AiAssistantView />} />
+
+              {/* FIX: Route voor Berichten (Sidebar link) */}
+              <Route
+                path="/messages"
+                element={<AdminMessagesView user={user} />}
+              />
+
               <Route path="/admin/*" element={<AdminDashboard />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
