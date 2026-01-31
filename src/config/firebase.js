@@ -1,11 +1,16 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
+import { PATHS } from "./dbPaths";
 
 /**
  * Firebase Configuratie - Project: future-factory-377ef
- * Toegevoegd: logActivity export voor de Locations module.
  */
 const firebaseConfig = {
   apiKey: "AIzaSyA0rOtnlrgPWwhPGj3GkoDqyG_S8n7re-s",
@@ -13,7 +18,7 @@ const firebaseConfig = {
   projectId: "future-factory-377ef",
   storageBucket: "future-factory-377ef.firebasestorage.app",
   messagingSenderId: "180452063401",
-  appId: "1:180452063401:web:66b4c30bf97080072cd1b8"
+  appId: "1:180452063401:web:66b4c30bf97080072cd1b8",
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -24,16 +29,18 @@ export const storage = getStorage(app);
 export const appId = "future-factory-377ef";
 
 /**
- * logActivity - Registreert wijzigingen in de database voor auditing.
+ * logActivity - Gecorrigeerd om gebruik te maken van de centrale PATHS
  */
 export const logActivity = async (userId, action, details) => {
   try {
-    const logsRef = collection(db, "future-factory", "production", "activity_logs");
+    // Gebruik de centrale definitie uit dbPaths.js
+    const logsRef = collection(db, ...PATHS.ACTIVITY_LOGS);
     await addDoc(logsRef, {
       userId,
+      userEmail: auth.currentUser?.email || "Systeem",
       action,
       details,
-      timestamp: serverTimestamp()
+      timestamp: serverTimestamp(),
     });
   } catch (e) {
     console.error("Logging failed:", e);

@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { collection, onSnapshot, doc } from "firebase/firestore";
 import { db } from "../config/firebase";
-import { PATHS, getPath } from "../config/dbPaths";
+import { PATHS, isValidPath } from "../config/dbPaths";
 
 /**
- * useSettingsData V4.0 - Crash Resistant
- * Oplossing voor 'pathArray is not iterable'.
+ * useSettingsData V6.0 - Build Stabilized
+ * Gebruikt nu isValidPath (consistent met useProductsData) om crashes te voorkomen.
  */
 export const useSettingsData = (user) => {
   const [settings, setSettings] = useState({
@@ -15,23 +15,21 @@ export const useSettingsData = (user) => {
     cbDimensions: [],
     tbDimensions: [],
     loading: true,
-    error: null,
   });
 
   useEffect(() => {
+    // Stop als er geen gebruiker is (voorkomt permission-denied in console)
+    if (!user) {
+      setSettings((s) => ({ ...s, loading: false }));
+      return;
+    }
+
     const listeners = [];
 
-    // Hulpfunctie met extra check op paden
     const subscribeToDoc = (pathKey, stateKey) => {
-      const pathArray = PATHS[pathKey];
-      if (!pathArray || !Array.isArray(pathArray)) {
-        console.warn(
-          `⚠️ Overslaan van Doc sync: ${pathKey} is geen geldig pad.`
-        );
-        return;
-      }
+      if (!isValidPath(pathKey)) return;
 
-      const docRef = doc(db, ...pathArray);
+      const docRef = doc(db, ...PATHS[pathKey]);
       const unsub = onSnapshot(
         docRef,
         (snap) => {
@@ -39,33 +37,26 @@ export const useSettingsData = (user) => {
             setSettings((prev) => ({ ...prev, [stateKey]: snap.data() }));
           }
         },
-        (err) => console.error(`Fout bij laden ${stateKey}:`, err.code)
+        (err) => console.warn(`Doc Sync Error [${stateKey}]:`, err.code)
       );
       listeners.push(unsub);
     };
 
     const subscribeToCollection = (pathKey, stateKey) => {
-      const pathArray = PATHS[pathKey];
-      if (!pathArray || !Array.isArray(pathArray)) {
-        console.warn(
-          `⚠️ Overslaan van Collectie sync: ${pathKey} is geen geldig pad.`
-        );
-        return;
-      }
+      if (!isValidPath(pathKey)) return;
 
-      const colRef = collection(db, ...pathArray);
+      const colRef = collection(db, ...PATHS[pathKey]);
       const unsub = onSnapshot(
         colRef,
         (snap) => {
           const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
           setSettings((prev) => ({ ...prev, [stateKey]: items }));
         },
-        (err) => console.error(`Fout bij laden ${stateKey}:`, err.code)
+        (err) => console.warn(`Coll Sync Error [${stateKey}]:`, err.code)
       );
       listeners.push(unsub);
     };
 
-    // Voer de subscriptions uit via de veilige keys
     try {
       subscribeToDoc("GENERAL_SETTINGS", "generalConfig");
       subscribeToDoc("MATRIX_CONFIG", "productRange");
@@ -73,12 +64,13 @@ export const useSettingsData = (user) => {
       subscribeToCollection("CB_DIMENSIONS", "cbDimensions");
       subscribeToCollection("TB_DIMENSIONS", "tbDimensions");
     } catch (e) {
-      console.error("Kritieke fout in useSettingsData:", e);
+      console.error("Kritieke fout in settings subscriptions:", e);
     }
 
+    // Zet loading op false na een korte buffer om UI-flikkering te voorkomen
     const timeout = setTimeout(() => {
-      setSettings((p) => ({ ...p, loading: false }));
-    }, 2000);
+      setSettings((prev) => ({ ...prev, loading: false }));
+    }, 1500);
 
     return () => {
       listeners.forEach((u) => u());
