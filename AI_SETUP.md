@@ -11,6 +11,16 @@ VITE_GOOGLE_AI_KEY=AIzaSyBkYyj-dFQK-xxlRt8nDG_ZC5m4WmFY6No
 ```
 De API key is al geconfigureerd en zou direct moeten werken!
 
+### 🚀 Enhanced AI Capaciteit (Nieuw!)
+- **Max Output Tokens**: 8000 (was 2000) - Veel uitgebreidere antwoorden mogelijk
+- **Document Analyse Limiet**: 50.000 tekens (was 12.000) - Tot 4x grotere documenten
+- **Context Opslag**: Volledige document tekst wordt nu opgeslagen voor betere referentie
+- **Uitgebreide Analyse**: Documenten worden nu veel gedetailleerder geanalyseerd met:
+  - Minimaal 500 karakters samenvatting
+  - Volledig gestructureerde context (tot 10.000 karakters)
+  - Alle belangrijke feiten, specificaties en details
+  - Volledige document tekst beschikbaar voor queries
+
 ## 🎯 Functionaliteit
 
 ### 1. Chat Modus
@@ -71,6 +81,19 @@ De AI heeft uitgebreide kennis over:
 - Afdelingen: Spuitgieten, Verpakking, Lossen
 - Shift tijden en kleuren
 
+### Document Analyse
+- **Upload Capacity**: Tot 50.000 tekens per document (PDF, TXT, MD, CSV, JSON)
+- **PDF Processing**: Automatische tekst extractie uit PDF documenten
+- **Intelligent Fallback**: Zelfs als JSON parsing mislukt, wordt document opgeslagen en doorzoekbaar
+- **Structured Analysis**: 
+  - Titel en uitgebreide samenvatting (min. 500 karakters)
+  - Key facts en belangrijke details
+  - Processen, partnummers, toleranties
+  - Workstations en datums
+  - Waarschuwingen en tags
+  - Volledige context (tot 10.000 karakters)
+- **Context Retention**: Volledige document tekst wordt opgeslagen voor betere AI queries
+
 ### Systeem Modules
 - **Portaal:** Dashboard en overzicht
 - **Planning:** WorkstationHub, Lossen, DigitalPlanning
@@ -112,6 +135,34 @@ De AI heeft uitgebreide kennis over:
 - Controleer internet verbinding
 - Verify API key is correct
 - Test key in Google AI Studio: https://aistudio.google.com/
+
+### "AI vindt mijn documenten niet"
+
+**Debug in Browser Console (F12):**
+```javascript
+// Lijst alle documenten in de database
+await window.aiDebug.listDocuments()
+
+// Test zoekfunctie
+await window.aiDebug.searchDocuments("a2e5")
+
+// Test context generatie
+await window.aiDebug.testContext("wat weet je over a2e5?")
+```
+
+**Checklist:**
+- ✅ Is document succesvol geüpload? (Bekijk in AI Documenten sectie)
+- ✅ Heeft document een `fullText` veld? (Check in debug output)
+- ✅ Is `characterCount` > 0?
+- ✅ Zie je "📚 Document search resultaten" in console bij AI vraag?
+- ✅ Zie je "✅ Context toegevoegd aan prompt"?
+
+**Als documenten niet worden gevonden:**
+1. Open browser console (F12)
+2. Upload document opnieuw
+3. Check of je "✅ JSON parsing succesvol" ziet
+4. Test: `await window.aiDebug.listDocuments()`
+5. Test: `await window.aiDebug.searchDocuments("jouw zoekterm")`
 
 ### "Rate limit exceeded"
 - Google Gemini free tier: 60 requests/minuut
